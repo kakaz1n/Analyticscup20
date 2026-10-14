@@ -30,6 +30,25 @@ export function defendsLeft(meta, teamId, period) {
   return teamId === meta.teams.home.id ? homeDefLeft : !homeDefLeft;
 }
 
+/**
+ * Split a team's outfielders into its lines (defence / midfield / attack) by depth: the two largest gaps
+ * in depth (each line >= 2 players) — adapts to 4-4-2, 4-3-3, 5-3-2, 3-5-2...
+ * depth(o): metres from the team's OWN goal line (smaller = deeper). Returns lines deepest first, each
+ * sorted across the pitch, in raw coords.
+ */
+export function teamLines(players, depth) {
+  const P = [...players].sort((a, b) => depth(a) - depth(b));
+  const n = P.length;
+  if (n < 4) return [];
+  let best = null;
+  for (let i = 2; i <= n - 4; i++) for (let j = i + 2; j <= n - 2; j++) {
+    const g = (depth(P[i]) - depth(P[i - 1])) + (depth(P[j]) - depth(P[j - 1]));
+    if (!best || g > best.g) best = { g, i, j };
+  }
+  const groups = best ? [P.slice(0, best.i), P.slice(best.i, best.j), P.slice(best.j)] : [P.slice(0, 4), P.slice(4)];
+  return groups.map((g) => [...g].sort((a, b) => a.y - b.y).map((o) => [o.x, o.y]));
+}
+
 function segDist(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
   let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
@@ -122,6 +141,11 @@ export function analyse(meta, tr, prev, period, possHint, info) {
   if (m.openLanesAhead >= 3) al.push({ lvl: 'amber', txt: `${m.openLanesAhead} open forward passing lanes` });
   if (ball && m.behindBall <= 5) al.push({ lvl: 'red', txt: `Only ${m.behindBall} outfielders behind the ball` });
   m.alerts = al;
+  // each team's own lines (defence / midfield / attack), drawn in that team's colour
+  m.teamLines = [
+    { team: defTeam, lines: teamLines(D, (o) => o.nx - gx) },
+    { team: possTeam, lines: teamLines(A, (o) => L / 2 - o.nx) },
+  ];
   m.D = D; m.A = A; m.Dgk = Dgk; m.ball = ball;
   return m;
 }

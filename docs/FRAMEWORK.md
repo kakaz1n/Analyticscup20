@@ -182,10 +182,11 @@ shown on top of the 3D match (all computed, no LLM):
 | Space between the lines | distance back line → next 3 players; alert > 15 m | coaching standard |
 | Numbers behind the ball | outfielders goal-side of the ball; alert ≤ 5 | coaching standard |
 | Pressure on the ball | nearest defender to the ball carrier, defenders within 5 m; carrier ring green/amber/red | Bekkers (2025) *Pressing Intensity* |
-| Marking / free men | nearest defender per attacker (white = goal-side, orange = not); red pulsing ring = attacker inside 35 m with no defender within 5 m | Groom et al. (2026); Song et al. (2026) |
+| Marking / free men | nearest defender per attacker (cyan = goal-side, rose = not); red pulsing ring = attacker inside 35 m with no defender within 5 m | Groom et al. (2026); Song et al. (2026) |
 | Passing lanes | lanes from the carrier to team-mates, blocked if a defender is within 1.6 m (cover shadow); count of open forward lanes | AnalyticsFC (2021) *pass prevention* |
 | Space conceded | simplified time-to-intercept pitch control (0.7 s reaction, 7 m/s, σ = 0.45): red = attack, blue = defence; **strong red = space the attack controls behind the defensive line** (+ m² shown live) | Spearman (2018); Fernández & Bornn (2018) |
-| Offside line | yellow dashed line at the second-last defender | — |
+| Team lines | each team's defence / midfield / attack lines in its kit colour (split at the two largest depth gaps, ≥2 players per line) | — |
+| Offside line | pink dashed line at the second-last defender | — |
 | Pressing intensity (match) | PPDA from SkillCorner engagements ending in regain / disruption / foul in the opponent's own two-thirds; passes per pressing engagement; counter-presses; pressing chains ending in a regain | Trainor (PPDA); Hudl/StatsBomb definitions — **no StatsBomb data used** |
 | Penetration conceded | line-breaking passes conceded (any line / last line), shots conceded | SkillCorner Dynamic Events |
 

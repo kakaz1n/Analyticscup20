@@ -31,7 +31,7 @@ The **framework is the viewer with Gemini inside it**: a loop of *Watch → Ask 
 
 *Follow player (#29 Mrčela, Perth): orange = Brisbane, white = Perth; the yellow cone is his ±60° field of view. The card on the right is the selected-player read-out.*
 
-Players with body pose are drawn as **skeletons** (12.5 fps, interpolated). The others — not visible on the TV
+Players with body pose are drawn as **skeletons** (12.5 fps, interpolated). The others — not visible on the TV Each body is a solid torso (oriented by shoulders and hips) with limbs and head from the 23 joints. The ball sits on the grass unless the tracking says it is clearly in the air (> 0.45 m; broadcast ball height is noisy near the ground); its shadow grows and fades with height.
 broadcast at that moment — are **translucent ghosts** placed from tracking (10 fps).
 
 ### 1.2 Cameras
@@ -55,14 +55,14 @@ Keyboard: `Space` play/pause · `←/→` ±5 s · `,`/`.` ±1 frame · `1`–`6
 
 | Overlay | Drawn on the grass | How to read it |
 |---|---|---|
-| **Shape** | Blue hull of the defending outfielders; white back line; grey midfield line; yellow dashed **offside line**; orange hull of the 5 defenders nearest the ball | Gaps between lines, block height, compactness *around the ball* |
-| **Marking** | Line from each attacker to his nearest defender (white = defender goal-side, orange = not); **pulsing red ring** = attacker inside 35 m with no defender within 5 m; ring on the ball carrier (green ≤2.5 m pressure, amber ≤5 m, red >5 m) | Who is free, who is marked from the wrong side, is the ball pressed |
+| **Shape** | **Each team's lines in its own kit colour** (e.g. orange = Brisbane, white = Perth; light blue = Sydney, yellow = Adelaide): defence, midfield and attack line of both teams, detected from the depth gaps (adapts to 4-4-2, 4-3-3, 5-3-2…), the defending team drawn thicker; the defending block filled in its colour; pink dashed **offside line**; violet hull of the 5 defenders nearest the ball | Gaps between lines, block height, compactness *around the ball* |
+| **Marking** | Line from each attacker to his nearest defender (cyan = defender goal-side, rose = not); **pulsing red ring** = attacker inside 35 m with no defender within 5 m; ring on the ball carrier (green ≤2.5 m pressure, amber ≤5 m, red >5 m) | Who is free, who is marked from the wrong side, is the ball pressed |
 | **Passing lanes** | From the ball carrier to each team-mate: solid green = open, grey dashed = blocked by a defender within 1.6 m | Cover shadows, open forward options |
 | **Space control** | Heatmap: red = attack arrives first, blue = defence; **strong red = space the attack controls behind the defensive line** | Space conceded, especially behind the line |
 
 ![Tactical camera with all overlays and the Live defence tab](img/viewer_live_overlays.png)
 
-*Tactical camera, 68:19, all four overlays on, seconds before Perth's goal. Live defence flags it: back line 15 m below Brisbane's median, 4 free attackers within 35 m, no pressure on the ball (8.5 m).*
+*Tactical camera, 68:19, all four overlays on, seconds before Perth's goal. Brisbane's lines in orange (defending, thicker), Perth's in white. Live defence flags it: back line 15 m below Brisbane's median, 4 free attackers within 35 m, no pressure on the ball (8.5 m).*
 
 Display toggles: Numbers (shirt numbers), Tracking ghosts, Field of view (cone of the selected player), Event
 pop-ups (framework moments narrated while playing).

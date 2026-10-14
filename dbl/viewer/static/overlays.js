@@ -4,16 +4,16 @@ import * as THREE from 'three';
 
 const COL = {
   hull: new THREE.Color('#60a5fa'), back: new THREE.Color('#ffffff'), mid: new THREE.Color('#cbd5e1'),
-  offside: new THREE.Color('#facc15'), mark: new THREE.Color('#e2e8f0'), markLoose: new THREE.Color('#fb923c'),
+  offside: new THREE.Color('#e879f9'), mark: new THREE.Color('#22d3ee'), markLoose: new THREE.Color('#f43f5e'),
   open: new THREE.Color('#22c55e'), blocked: new THREE.Color('#64748b'), free: new THREE.Color('#ef4444'),
-  ballZone: new THREE.Color('#f59e0b'),
+  ballZone: new THREE.Color('#8b5cf6'), under: new THREE.Color('#0b1220'),
 };
 
 export class Overlays {
   constructor(scene) {
     this.scene = scene;
     const flat = (opacity) => new THREE.MeshBasicMaterial({ transparent: true, opacity, depthWrite: false });
-    this.seg = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), flat(0.9), 400);
+    this.seg = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), flat(0.9), 600);
     this.seg.frustumCulled = false; this.seg.renderOrder = 3; scene.add(this.seg);
     this.rings = new THREE.InstancedMesh(new THREE.RingGeometry(0.75, 1.05, 32), flat(0.95), 30);
     this.rings.frustumCulled = false; this.rings.renderOrder = 4; scene.add(this.rings);
@@ -71,7 +71,7 @@ export class Overlays {
 
   _dashed(i, a, b, width, color, dash = 0.8, gap = 0.6) {
     const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
-    for (let s = 0; s < len && i < 395; s += dash + gap) {
+    for (let s = 0; s < len && i < 590; s += dash + gap) {
       const e = Math.min(s + dash, len);
       i = this._segment(i, [a[0] + ux * s, a[1] + uy * s], [a[0] + ux * e, a[1] + uy * e], width, color);
     }
@@ -89,15 +89,37 @@ export class Overlays {
     if (this.space) this.space.visible = false;
   }
 
+  // team colours (kit jersey colours from the match sheet): lines and block of each team
+  setTeams(meta) {
+    this.teamCol = new Map();
+    for (const side of ['home', 'away']) {
+      const tm = meta.teams[side];
+      this.teamCol.set(tm.id, new THREE.Color(tm.color || (side === 'home' ? '#60a5fa' : '#f87171')));
+    }
+  }
+
   update(m, opt, W, t) {
     if (!m || !m.inPlay) { this.hide(); return; }
     let i = 0, r = 0;
     // --- SHAPE: team hull, back line, midfield line, offside line, ball-zone hull
     if (opt.shape) {
       this._poly(this.hullMesh, m.hull);
+      this.hullMesh.material.color.copy((this.teamCol && this.teamCol.get(m.defTeam)) || COL.hull);
       this._poly(this.bzMesh, m.ballZoneHull);
-      for (let k = 0; k + 1 < m.backLine.length; k++) i = this._segment(i, m.backLine[k], m.backLine[k + 1], 0.22, COL.back);
-      for (let k = 0; k + 1 < m.midLine.length; k++) i = this._segment(i, m.midLine[k], m.midLine[k + 1], 0.16, COL.mid);
+      // lines of BOTH teams, each in its own kit colour (defending team thicker); dark underlay keeps
+      // light kits (white / yellow) readable on the grass
+      for (const tl of m.teamLines || []) {
+        const c = (this.teamCol && this.teamCol.get(tl.team)) || (tl.team === m.defTeam ? COL.back : COL.mid);
+        const w = tl.team === m.defTeam ? 0.24 : 0.15;
+        tl.lines.forEach((ln, li) => {
+          const ww = li === 0 ? w : w * 0.75;
+          for (let k = 0; k + 1 < ln.length && i < 390; k++) {
+            if (Math.hypot(ln[k + 1][0] - ln[k][0], ln[k + 1][1] - ln[k][1]) > 32) continue; // not one line
+            i = this._segment(i, ln[k], ln[k + 1], ww + 0.12, COL.under, 0.036);
+            i = this._segment(i, ln[k], ln[k + 1], ww, c, 0.04);
+          }
+        });
+      }
       if (Number.isFinite(m.offsideX)) {
         const x = m.offsideX * m.s; // back to raw coords
         i = this._dashed(i, [x, -W / 2], [x, W / 2], 0.14, COL.offside, 1.2, 0.8);

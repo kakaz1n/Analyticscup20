@@ -118,16 +118,19 @@ function buildPitch(L, W) {
 
 // ------------------------------------------------------------------ actors
 const MAXP = 40;
-let BONES = [], JOINTS = [], J = {}, TORSO = new Set();
+let BONES = [], JOINTS = [], J = {}, TORSO = new Set(), BONE_R = [];
 const boneMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.055, 0.055, 1, 7), new THREE.MeshStandardMaterial({ roughness: 0.55 }), MAXP * 30);
 const headMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.115, 14, 10), new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAXP);
+// torso = one solid capsule from neck to mid-hip, oriented by shoulders & hips (no more "vest" of thick bars)
+const torsoMesh = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.5, 1.0, 6, 14), new THREE.MeshStandardMaterial({ roughness: 0.6 }), MAXP);
 const jointMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.06, 8, 6), new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAXP * 8);
 const ghostMesh = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.27, 1.15, 4, 10), new THREE.MeshStandardMaterial({ transparent: true, opacity: 0.38, roughness: 0.8, depthWrite: false }), MAXP);
-for (const m of [boneMesh, headMesh, jointMesh]) { m.castShadow = true; m.frustumCulled = false; scene.add(m); }
+for (const m of [boneMesh, headMesh, jointMesh, torsoMesh]) { m.castShadow = true; m.frustumCulled = false; scene.add(m); }
 ghostMesh.frustumCulled = false; scene.add(ghostMesh);
-const ball = new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 14), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35 }));
+const BALL_R = 0.11;
+const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 18, 14), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35 }));
 ball.castShadow = true; scene.add(ball);
-const ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.16, 20), new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.35 }));
+const ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.14, 20), new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.45, depthWrite: false }));
 ballShadow.position.z = 0.01; scene.add(ballShadow);
 
 const coneMat = new THREE.MeshBasicMaterial({ color: '#f59e0b', transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
@@ -164,10 +167,20 @@ async function loadMeta(id) {
   const m = await r.json();
   S.meta = m; S.match = id; S.chunks.clear(); S.pending.clear();
   JOINTS = m.joints; BONES = m.bones; J = Object.fromEntries(JOINTS.map((n, i) => [n, i]));
+  // bones replaced by the solid torso (shoulders, hips, neck-hip) or hidden inside the head (eyes / ears / nose)
   TORSO = new Set(BONES.map((b, i) => [b, i]).filter(([b]) => {
     const n = [JOINTS[b[0]], JOINTS[b[1]]];
-    return n.every((x) => /Shoulder|Hip|neck/.test(x));
+    return n.every((x) => /Shoulder|Hip|neck/.test(x)) || n.every((x) => /Eye|Ear|nose/.test(x));
   }).map(([, i]) => i));
+  BONE_R = BONES.map(([a, b]) => {
+    const n = JOINTS[a] + JOINTS[b];
+    if (/Hip.*Knee|Knee.*Hip/.test(n)) return 1.45;      // thigh
+    if (/Knee.*Ankle|Ankle.*Knee/.test(n)) return 1.15;  // shin
+    if (/Shoulder.*Elbow/.test(n)) return 1.0;           // upper arm
+    if (/Elbow.*Wrist/.test(n)) return 0.8;              // forearm
+    if (/nose.*neck|neck.*nose/.test(n)) return 1.1;     // neck
+    return 0.75;                                         // feet
+  });
   S.playerInfo = new Map(m.players.map((p) => [p.id, p]));
   const teams = { [m.teams.home.id]: m.teams.home, [m.teams.away.id]: m.teams.away };
   S.teamOf = new Map(m.players.map((p) => [p.id, teams[p.team]]));
@@ -308,7 +321,7 @@ function draw() {
   const sk = skeletonsAt(S.t), tr = trackAt(S.t);
   lastSk = sk; lastTr = tr;
   runAnalysis(tr);
-  let bi = 0, hi = 0, ji = 0, gi = 0;
+  let bi = 0, hi = 0, ji = 0, gi = 0, ti = 0;
   const shown = new Set();
   for (const sp of labelSprites.values()) sp.visible = false;
   for (const [pid, p] of sk) {
@@ -321,10 +334,12 @@ function draw() {
       if (!(Number.isFinite(ax) && Number.isFinite(bx))) return;
       _v.set(bx - ax, by - ay, bz - az); const len = _v.length(); if (len < 1e-3 || len > 1.2) return;
       _q.setFromUnitVectors(_up, _v.clone().divideScalar(len));
-      const r = TORSO.has(k) ? 2.1 : 1;
+      if (TORSO.has(k)) return;
+      const r = BONE_R[k] || 1;
       _m.compose(_s.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2), _q, new THREE.Vector3(r, len, r));
       boneMesh.setMatrixAt(bi, _m); boneMesh.setColorAt(bi, col); bi++;
     });
+    if (torsoMatrix(p, _m)) { torsoMesh.setMatrixAt(ti, _m); torsoMesh.setColorAt(ti, col); ti++; }
     const h = headPose(p);
     if (h) {
       _m.compose(_s.set(h.x, h.y, h.z), _q.identity(), new THREE.Vector3(1, 1, 1));
@@ -354,17 +369,53 @@ function draw() {
       if (pid === S.sel) { ring.visible = true; ring.position.set(x, y, 0.02); updateCone(null); }
     }
     if (tr.ball) {
-      const z = Math.max(tr.ball[2] || 0, 0.13);
+      const z = ballHeight(tr.ball[2]);
       ball.position.set(tr.ball[0], tr.ball[1], z); ball.visible = true;
-      ballShadow.position.set(tr.ball[0], tr.ball[1], 0.012); ballShadow.visible = true;
+      // shadow under the ball: sharp on the grass, larger and fainter in the air (depth cue)
+      const hz = z - BALL_R, sc = 1 + hz * 0.35;
+      ballShadow.position.set(tr.ball[0], tr.ball[1], 0.012); ballShadow.scale.set(sc, sc, 1);
+      ballShadow.material.opacity = Math.max(0.12, 0.5 - hz * 0.12); ballShadow.visible = true;
     } else { ball.visible = false; ballShadow.visible = false; }
   }
   if (S.sel == null || (!shown.has(S.sel) && !(tr && tr.pos.has(S.sel)))) { ring.visible = false; cone.visible = false; }
-  boneMesh.count = bi; headMesh.count = hi; jointMesh.count = ji; ghostMesh.count = gi;
-  for (const m of [boneMesh, headMesh, jointMesh, ghostMesh]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+  boneMesh.count = bi; headMesh.count = hi; jointMesh.count = ji; ghostMesh.count = gi; torsoMesh.count = ti;
+  for (const m of [boneMesh, headMesh, jointMesh, ghostMesh, torsoMesh]) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
   const nTrack = tr ? tr.pos.size : 0;
   $('cov').textContent = `${shown.size}/${nTrack || shown.size}`;
   updatePoseDots(shown);
+}
+
+// Broadcast-derived ball height is noisy near the ground (rolling passes read 0.3–0.9 m), which made the ball
+// look like it floats. Below 0.45 m the ball is on the grass; above, the height blends back to the raw value
+// (exact from 1.45 m), so lofted passes, crosses and headers keep their real height.
+function ballHeight(zr) {
+  const z = Number.isFinite(zr) ? zr : 0;
+  if (z <= 0.45) return BALL_R;
+  return BALL_R + (z - 0.45) + 0.34 * Math.min(1, (z - 0.45) / 1.0);
+}
+
+// Solid torso: capsule from mid-hip to neck, width from the shoulders, depth fixed; oriented by the
+// shoulder + hip lines so it turns with the body.
+const _tu = new THREE.Vector3(), _tl = new THREE.Vector3(), _tf = new THREE.Vector3(), _tp = new THREE.Vector3();
+function torsoMatrix(p, out) {
+  const g = (n) => { const i = J[n] * 3; return Number.isFinite(p[i]) ? [p[i], p[i + 1], p[i + 2]] : null; };
+  const ls = g('lShoulder'), rs = g('rShoulder'), lh = g('lHip'), rh = g('rHip'), nk = g('neck');
+  if (!ls || !rs || !lh || !rh) return false;
+  const sh = [(ls[0] + rs[0]) / 2, (ls[1] + rs[1]) / 2, (ls[2] + rs[2]) / 2];
+  const top = nk ? [(sh[0] + nk[0]) / 2, (sh[1] + nk[1]) / 2, (sh[2] + nk[2]) / 2] : sh;
+  const hip = [(lh[0] + rh[0]) / 2, (lh[1] + rh[1]) / 2, (lh[2] + rh[2]) / 2];
+  _tu.set(top[0] - hip[0], top[1] - hip[1], top[2] - hip[2]);
+  const len = _tu.length(); if (len < 0.2 || len > 0.9) return false;
+  _tu.divideScalar(len);
+  _tl.set(rs[0] - ls[0] + rh[0] - lh[0], rs[1] - ls[1] + rh[1] - lh[1], rs[2] - ls[2] + rh[2] - lh[2]);
+  _tl.addScaledVector(_tu, -_tl.dot(_tu)); if (_tl.length() < 1e-3) return false; _tl.normalize();
+  _tf.crossVectors(_tl, _tu).normalize();   // right-handed basis (X=lateral, Y=up, Z=lat×up), else faces invert
+  const width = Math.min(0.46, Math.max(0.26, Math.hypot(rs[0] - ls[0], rs[1] - ls[1], rs[2] - ls[2]) * 0.92));
+  const depth = 0.23, h = (len + 0.12) / 2;   // capsule geometry is 2 units tall, 1 unit wide
+  _tp.set((top[0] + hip[0]) / 2 + _tu.x * 0.03, (top[1] + hip[1]) / 2 + _tu.y * 0.03, (top[2] + hip[2]) / 2 + _tu.z * 0.03);
+  out.makeBasis(_tl.clone().multiplyScalar(width), _tu.clone().multiplyScalar(h), _tf.clone().multiplyScalar(depth));
+  out.setPosition(_tp);
+  return true;
 }
 
 function updateCone(h) {
@@ -569,6 +620,15 @@ function maybeToast() {
 let last = performance.now(), sliderT = 0;
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  if (window.__manual) { requestAnimationFrame(loop); return; } // frame-exact capture: driven by window.__step
+  tick(dt, now);
+  requestAnimationFrame(loop);
+}
+// Deterministic stepping for video export / automated screenshots: window.__manual = true; window.__step(1/30)
+window.__vt = 0; // virtual clock (ms) for overlay animations while capturing
+window.__step = (dt) => { sliderT = 0; window.__vt += dt * 1000; tick(dt, performance.now()); return S.t; };
+const animNow = () => (window.__manual ? window.__vt : performance.now()) / 1000;
+function tick(dt, now) {
   if (S.meta) {
     const ready = manageChunks();
     $('loading').style.display = ready ? 'none' : 'block';
@@ -586,7 +646,6 @@ function loop(now) {
     updateCamera(dt);
   }
   renderer.render(scene, camera);
-  requestAnimationFrame(loop);
 }
 
 // ------------------------------------------------------------------ defensive analysis
@@ -599,8 +658,9 @@ function runAnalysis(tr) {
   const prevT = trackAt(S.t - 3);
   const prev = prevT ? { pos: prevT.pos, dt: 0.3 } : null;
   S.ana = analyse(S.meta, tr, prev, periodAt(S.t), S.lastPoss, S.playerInfo);
-  overlays.update(S.ana, S.ov, S.meta.pitch[1], performance.now() / 1000);
-  overlays.updateSim(S.sim, S.sim && Math.abs(S.t - S.sim.frame) < 25, performance.now() / 1000);
+  if (overlays.metaRef !== S.meta) { overlays.setTeams(S.meta); overlays.metaRef = S.meta; }
+  overlays.update(S.ana, S.ov, S.meta.pitch[1], animNow());
+  overlays.updateSim(S.sim, S.sim && Math.abs(S.t - S.sim.frame) < 25, animNow());
   const now = performance.now();
   if (S.ov.space && S.ana && S.ana.inPlay && (!runAnalysis.pcT || now - runAnalysis.pcT > 250)) {
     runAnalysis.pcT = now;

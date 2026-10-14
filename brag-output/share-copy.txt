@@ -1,0 +1,1 @@
+What did the defender see? I rebuilt full A-League matches in 3D from SkillCorner body pose, put Gemini inside the viewer, and asked it how Perth's winner happened — then how to stop it. Reachable positions, 1.5 s earlier: danger −52%. #PySport #AnalyticsCup
