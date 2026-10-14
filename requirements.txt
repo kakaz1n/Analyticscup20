@@ -1,0 +1,10 @@
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+pyarrow>=14
+matplotlib>=3.7
+plotly>=5.18
+streamlit>=1.40
+orjson>=3.9
+google-genai>=1.0   # optional: only used when GEMINI_API_KEY is set
+pytest>=7

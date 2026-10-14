@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "defensive-body-language"
+version = "0.1.0"
+description = "SEE-SHAPE-STANCE-REACT: evaluating defending with SkillCorner tracking + body pose"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.md" }
+dependencies = ["numpy>=1.24", "pandas>=2.0", "scipy>=1.10", "pyarrow>=14", "matplotlib>=3.7",
+                "plotly>=5.18", "streamlit>=1.40", "orjson>=3.9"]
+
+[project.optional-dependencies]
+llm = ["google-genai>=1.0"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+dbl = "dbl.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dbl*"]

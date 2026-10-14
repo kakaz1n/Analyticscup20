@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Match 3D · Defensive Body Language</title>
+<style>
+  :root {
+    --bg: #0b1220; --panel: rgba(12, 18, 32, 0.86); --line: rgba(255,255,255,0.12);
+    --ink: #eef2f7; --muted: #9aa7b8; --accent: #f59e0b;
+    --run: #f59e0b; --pass: #38bdf8; --duel: #f472b6; --recovery: #a3e635;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font: 13px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    backdrop-filter: blur(6px); }
+  #top { top: 12px; left: 12px; padding: 10px 12px; min-width: 320px; }
+  #top h1 { font-size: 15px; margin: 0 0 4px; font-weight: 650; }
+  #clock { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; letter-spacing: .5px; }
+  .muted { color: var(--muted); }
+  select, button { font: inherit; color: var(--ink); background: rgba(255,255,255,0.07);
+    border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+  button:hover, select:hover { background: rgba(255,255,255,0.14); }
+  button.on { background: var(--accent); color: #111; border-color: var(--accent); }
+  #cams { top: 12px; right: 12px; padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; max-width: 470px; justify-content: flex-end; }
+  #players { top: 150px; left: 12px; width: 236px; max-height: calc(100% - 300px); overflow: auto; padding: 8px; }
+  #players h3 { margin: 6px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  .pl { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
+  .pl:hover { background: rgba(255,255,255,0.08); }
+  .pl.sel { background: rgba(245,158,11,0.25); }
+  .num { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
+  .pose-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; margin-left: auto; opacity: 0; }
+  .pose-dot.on { opacity: 1; }
+  #bottom { left: 12px; right: 12px; bottom: 12px; padding: 8px 12px 10px; }
+  #row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  #evcanvas { width: 100%; height: 26px; display: block; cursor: pointer; }
+  #slider { width: 100%; margin: 2px 0 0; accent-color: var(--accent); }
+  .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 99px; cursor: pointer; user-select: none; }
+  .chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .chip.off { opacity: .4; }
+  #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 172px; padding: 8px 14px; max-width: 70%;
+    background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+  #tip { position: fixed; pointer-events: none; padding: 5px 8px; background: #111827; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; display: none; max-width: 360px; }
+  #loading { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 10px 16px; display: none; }
+  #help { bottom: 132px; right: 12px; padding: 8px 10px; font-size: 11.5px; color: var(--muted); }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; color: var(--ink); }
+  #side { top: 190px; right: 12px; width: 372px; bottom: 168px; display: flex; flex-direction: column; overflow: hidden; }
+  #tabs { display: flex; gap: 4px; padding: 8px 8px 0; }
+  #tabs button { flex: 1; border-radius: 7px 7px 0 0; }
+  .tab { display: none; overflow: auto; padding: 10px 12px; flex: 1; }
+  .tab.on { display: block; }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0 10px; }
+  .kpi { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 6px 8px; }
+  .kpi b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: 11px; }
+  .kpi small { color: var(--muted); font-size: 10.5px; }
+  .alert { padding: 5px 8px; border-radius: 7px; margin: 4px 0; font-size: 12.5px; border-left: 3px solid; background: rgba(255,255,255,0.04); }
+  .alert.red { border-color: #ef4444; } .alert.amber { border-color: #f59e0b; } .alert.ok { border-color: #22c55e; color: var(--muted); }
+  .card { border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; margin-bottom: 10px; }
+  .card h4 { margin: 0 0 4px; font-size: 13.5px; }
+  .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; font-size: 12.5px; }
+  .row span:first-child { color: var(--muted); }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .pill.good { background: #14532d; color: #bbf7d0; } .pill.bad { background: #7f1d1d; color: #fecaca; } .pill.mid { background: #78350f; color: #fde68a; }
+  .rep h3 { font-size: 13px; margin: 12px 0 4px; }
+  .rep li { margin: 3px 0; font-size: 12.5px; }
+  .rev { cursor: pointer; padding: 4px 6px; border-radius: 6px; font-size: 12px; }
+  .rev:hover { background: rgba(255,255,255,0.08); }
+  #chat { display: flex; flex-direction: column; gap: 8px; }
+  .msg { padding: 8px 10px; border-radius: 9px; font-size: 12.8px; line-height: 1.45; white-space: normal; }
+  .msg.user { background: rgba(245,158,11,0.18); align-self: flex-end; max-width: 90%; }
+  .msg.bot { background: rgba(255,255,255,0.06); }
+  .msg details { margin-top: 6px; color: var(--muted); font-size: 11px; }
+  #askrow { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--line); }
+  #askrow input { flex: 1; font: inherit; color: var(--ink); background: rgba(255,255,255,0.07); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; }
+  .quick { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 8px 8px; }
+  .quick button { font-size: 11.5px; padding: 3px 8px; }
+  #chart { width: 100%; height: 40px; display: block; margin-bottom: 2px; }
+  @media (max-width: 760px) { #players, #side { display: none; } #top { min-width: 0; right: 12px; } #cams { top: auto; bottom: 120px; } }
+</style>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="top" class="panel">
+  <h1 id="title">Match 3D</h1>
+  <div style="display:flex; gap:10px; align-items:baseline; flex-wrap:wrap">
+    <span id="clock">00:00</span><span id="half" class="muted"></span>
+    <span class="muted">· skeletons <b id="cov">–</b></span>
+  </div>
+  <div style="margin-top:6px"><select id="match"></select></div>
+</div>
+
+<div id="cams" class="panel">
+  <button data-cam="broadcast" class="on" title="1">Broadcast</button>
+  <button data-cam="tactical" title="2">Tactical</button>
+  <button data-cam="goal" title="3">Behind goal</button>
+  <button data-cam="follow" title="4">Follow player</button>
+  <button data-cam="eyes" title="5">Player's eyes</button>
+  <button data-cam="free" title="6">Free</button>
+  <span style="width:100%"></span>
+  <button id="tLabels" class="on">Numbers</button>
+  <button id="tGhosts" class="on">Tracking ghosts</button>
+  <button id="tCone" class="on">Field of view</button>
+  <button id="tToasts" class="on">Event pop-ups</button>
+  <span style="width:100%"></span>
+  <span class="muted" style="align-self:center; margin-right:4px">Analysis:</span>
+  <button id="oShape" class="on" title="Team block, back & midfield lines, offside line, ball-zone compactness">Shape</button>
+  <button id="oMarking" class="on" title="Nearest defender to each attacker; red rings = free attackers near goal">Marking</button>
+  <button id="oLanes" title="Passing lanes from the ball carrier: green open, grey blocked">Passing lanes</button>
+  <button id="oSpace" title="Space control (time-to-intercept model): red = attack, blue = defence; strong red = space behind the line">Space control</button>
+</div>
+
+<div id="players" class="panel"></div>
+
+<div id="side" class="panel">
+  <div id="tabs"><button data-tab="live" class="on">Live defence</button><button data-tab="report">Match report</button><button data-tab="ask">Ask Gemini</button></div>
+  <div id="tab-live" class="tab on"></div>
+  <div id="tab-report" class="tab rep"><span class="muted">Loading…</span></div>
+  <div id="tab-ask" class="tab"><div id="chat"></div></div>
+  <div class="quick" id="quick" style="display:none">
+    <button data-q="Explain this moment defensively: shape, the key individual action, the consequence and the coaching correction.">Explain this moment</button>
+    <button data-q="What should the selected defender have done differently here? Use his body orientation, vision and position.">What should he have done?</button>
+    <button data-q="Give me the defensive report of this match for both teams and the 3 moments I should review on video.">Match report</button>
+    <button data-q="How did the attacking team exploit the defence in this match? Patterns, players and channels.">How were they exploited?</button>
+    <button data-q="How did each goal of this match happen and which defenders are responsible?">Goals &amp; who's responsible</button>
+    <button data-q="How could the first goal have been avoided? Simulate the better defensive positions.">How to avoid the goal?</button>
+    <button id="newchat" title="Forget this conversation and start a new one">↺ New conversation</button>
+  </div>
+  <div id="askrow" style="display:none"><input id="askq" placeholder="Ask about this moment, a player, a team…"><button id="askgo">Ask</button></div>
+</div>
+
+<div id="bottom" class="panel">
+  <div id="row1">
+    <button id="play" title="Space">▶ Play</button>
+    <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>2</option><option>4</option><option>8</option></select>
+    <span class="muted">×</span>
+    <span class="muted" title="Space play/pause · ←/→ ±5 s · ,/. ±1 frame · 1–6 cameras · double-click a player to select">⌨ shortcuts</span>
+    <span style="flex:1"></span>
+    <span class="chip" data-k="run"><i style="background:var(--run)"></i>Runs</span>
+    <span class="chip" data-k="pass"><i style="background:var(--pass)"></i>Line-breaking passes</span>
+    <span class="chip" data-k="duel"><i style="background:var(--duel)"></i>Duels</span>
+    <span class="chip" data-k="recovery"><i style="background:var(--recovery)"></i>Recoveries</span>
+    <span class="chip" id="keyOnly">Key moments only</span>
+  </div>
+  <canvas id="chart" title="Back-line height (m from own goal) of each team over the match"></canvas>
+  <canvas id="evcanvas"></canvas>
+  <input id="slider" type="range" min="0" max="1" step="1" value="0">
+</div>
+
+<div id="toast"></div>
+<div id="tip"></div>
+<div id="loading" class="panel">Loading…</div>
+
+<script type="module" src="./viewer.js"></script>
+</body>
+</html>
