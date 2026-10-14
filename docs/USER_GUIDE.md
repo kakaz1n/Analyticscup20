@@ -7,6 +7,12 @@ Two interfaces share the same data and tools:
 - **Streamlit app** (`python -m dbl app`): tables, filters, profiles, evidence, 3D/2D clips of single moments; it
   embeds the viewer in the *Match 3D* tab.
 
+The **framework is the viewer with Gemini inside it**: a loop of *Watch → Ask → Diagnose → Fix* on the real match.
+
+![Viewer with Gemini answering about goal 1](img/viewer_gemini_goal.png)
+
+*"How did the first goal happen and who is responsible?" → sequence, shape at the shot and responsibility indicators per defender, with a "▶ Go to" button. The viewer is already at the build-up.*
+
 ---
 
 ## 1. The 3D match viewer
@@ -20,6 +26,10 @@ Two interfaces share the same data and tools:
 | Top-right | Cameras, display toggles, **Analysis** overlay toggles |
 | Right panel | **Live defence** · **Match report** · **Ask Gemini** |
 | Bottom | Play/pause, speed (0.25×–8×), back-line height chart of both teams, event timeline, scrubber |
+
+![Follow-player camera with real skeletons](img/viewer_skeletons.png)
+
+*Follow player (#29 Mrčela, Perth): orange = Brisbane, white = Perth; the yellow cone is his ±60° field of view. The card on the right is the selected-player read-out.*
 
 Players with body pose are drawn as **skeletons** (12.5 fps, interpolated). The others — not visible on the TV
 broadcast at that moment — are **translucent ghosts** placed from tracking (10 fps).
@@ -35,6 +45,10 @@ broadcast at that moment — are **translucent ghosts** placed from tracking (10
 | **Player's eyes** | Camera at the selected player's head, looking where his head points — *what could he see?* |
 | Free | Orbit/zoom with the mouse (any drag switches to Free) |
 
+![Player's eyes camera](img/viewer_players_eyes.png)
+
+*Player's eyes: the same instant seen from Mrčela's head. He sees the ball; his man (Waddingham, 11 m away) is outside his view.*
+
 Keyboard: `Space` play/pause · `←/→` ±5 s · `,`/`.` ±1 frame · `1`–`6` cameras · double-click a player on the pitch to select him.
 
 ### 1.3 Analysis overlays (toggle in *Analysis:*)
@@ -45,6 +59,10 @@ Keyboard: `Space` play/pause · `←/→` ±5 s · `,`/`.` ±1 frame · `1`–`6
 | **Marking** | Line from each attacker to his nearest defender (white = defender goal-side, orange = not); **pulsing red ring** = attacker inside 35 m with no defender within 5 m; ring on the ball carrier (green ≤2.5 m pressure, amber ≤5 m, red >5 m) | Who is free, who is marked from the wrong side, is the ball pressed |
 | **Passing lanes** | From the ball carrier to each team-mate: solid green = open, grey dashed = blocked by a defender within 1.6 m | Cover shadows, open forward options |
 | **Space control** | Heatmap: red = attack arrives first, blue = defence; **strong red = space the attack controls behind the defensive line** | Space conceded, especially behind the line |
+
+![Tactical camera with all overlays and the Live defence tab](img/viewer_live_overlays.png)
+
+*Tactical camera, 68:19, all four overlays on, seconds before Perth's goal. Live defence flags it: back line 15 m below Brisbane's median, 4 free attackers within 35 m, no pressure on the ball (8.5 m).*
 
 Display toggles: Numbers (shirt numbers), Tracking ghosts, Field of view (cone of the selected player), Event
 pop-ups (framework moments narrated while playing).
@@ -62,6 +80,9 @@ pop-ups (framework moments narrated while playing).
 - **🧪 Simulate better defending here**: runs the counterfactual at the current frame (section 1.6).
 
 **Match report**
+
+![Match report with the goal card](img/viewer_match_report.png)
+
 - One card per **goal**: build-up, situation at the shot, responsibility indicators, and buttons
   *▶ Watch build-up*, *🧪 How to stop it*, *Ask Gemini*.
 - Per-team defensive report (block mix, line height, compactness, free-man rate, PPDA, counter-pressing, line
@@ -86,6 +107,10 @@ the assist pass and shows:
 - a **Simulation** card: danger reduction, free attackers, distance to the scorer, pressure on the ball, open shot
   lane, attack space near goal — before → after — and the **key fix** (the single most valuable correction).
 
+![Simulation card in Live defence](img/viewer_simulation.png)
+
+*Goal 1 simulation: danger −52 %, free attackers 5 → 2, nearest defender to the scorer 8.0 → 0.7 m; key fix Walid Shour goal-side of Williams. Green figures = corrected positions.*
+
 Rules: each defender can only reach where he could have been if he had reacted 1.5 s earlier (≤ 9 m at 6 m/s);
 attackers are held fixed. A big reduction means positioning could have prevented it; < 10 % means the defence was
 already near its best reachable shape. *↺ Replay into it* rewinds 4 s so you see the moment arrive.
@@ -95,6 +120,10 @@ already near its best reachable shape. *↺ Replay into it* rewinds 4 s so you s
 Every question is sent with what you are watching: match, frame, clock, selected player, the live overlay state,
 the defensive state at that frame, the nearby framework moments and the list of goals. Gemini answers by calling
 read-only tools (listed under each answer) — it never invents numbers.
+
+![Follow-up question answered with a simulation](img/viewer_gemini_simulation.png)
+
+*Follow-up "How could it be avoided?" — no need to repeat which goal: the chat remembers. The answer draws the corrected positions on the pitch.*
 
 - **Memory**: the conversation is remembered (including the data already retrieved), so follow-ups work:
   *"How did the first goal happen?"* → *"who is to blame?"* → *"how could it be avoided?"* → *"and the second one?"*.

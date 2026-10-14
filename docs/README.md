@@ -1,5 +1,11 @@
 # Documentation
 
+**The framework is the 3D match viewer with Gemini integrated** — Watch → Ask → Diagnose → Fix on the real match
+(`python -m dbl viewer`). Start with the [user guide](USER_GUIDE.md) (illustrated) or section 0 of
+[FRAMEWORK.md](FRAMEWORK.md).
+
+![Viewer](img/viewer_gemini_simulation.png)
+
 | Document | For |
 |---|---|
 | [INSTALL.md](INSTALL.md) | Installing, downloading the data, building, running, Gemini, troubleshooting |
@@ -8,3 +14,4 @@
 | [RESULTS.md](RESULTS.md) | All numbers: evidence, team profiles, match reports, every goal with responsibility and simulation (generated) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Pipeline, modules, coordinate conventions, data schemas, HTTP API, LLM tools, how to extend |
 | [DATA.md](DATA.md) | Data sources, rules, coverage and quality, limitations |
+| [img/](img/) | Screenshots of the viewer used across the docs (captured with the offline router; with a Gemini key the answers carry the same tool results) |

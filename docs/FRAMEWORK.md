@@ -1,6 +1,31 @@
-# SEE · SHAPE · STANCE · REACT — full framework reference
+# Defensive Body Language — full framework reference
 
-This document is the long-form companion to the README (which is limited to 1,000 words). It is generated from `dbl/framework.py` and `dbl/config.py`, so it never drifts from the code.
+This document is the long-form companion to the README (which is limited to 1,000 words). Metric definitions and
+thresholds mirror `dbl/framework.py` and `dbl/config.py`.
+
+## 0. The framework is the 3D viewer with Gemini inside it
+
+The deliverable for analysts is not a set of metrics: it is a **loop played on the real match**.
+
+| Step | What the analyst does | What the system provides | Where |
+|---|---|---|---|
+| **Watch** | Plays the full match in 3D, picks a camera (incl. *Player's eyes*), selects a defender | Real skeletons at 12.5 fps, live overlays (shape, marking, lanes, space), event timeline | §11 |
+| **Ask** | Types a question about what is on screen; follows up | Gemini with the frame as context, 17 read-only tools, conversation memory; answers jump the viewer to the cited moment | §12 |
+| **Diagnose** | Reads the computed answer | Team shape layer (§12), body-language layer SEE-SHAPE-STANCE-REACT (§2–5), goal responsibility (§13) | §2–§13 |
+| **Fix** | Asks "how could it be avoided?" | Counterfactual positions reachable within 1.5 s, drawn as green figures, with the key fix | §14 |
+
+![Watch + Ask: goal 1 explained in the viewer](img/viewer_gemini_goal.png)
+
+*Watch + Ask + Diagnose: the analyst asks about the first goal; the answer (sequence, shape at the shot,
+responsibility indicators) comes from tools, and the viewer is already at the build-up.*
+
+![Fix: follow-up simulation](img/viewer_gemini_simulation.png)
+
+*Fix: the follow-up "How could it be avoided?" (no goal named — the chat remembers) runs the simulation and draws
+the corrected positions on the pitch.*
+
+Everything numeric is computed by the Python package; the LLM only selects tools, reads their JSON and writes the
+explanation. The same tools power a deterministic offline mode, so the framework works without an API key.
 
 ## 1. Why body pose changes defensive analysis
 
@@ -64,6 +89,11 @@ Each finding compares the outcome rate when the cue is present vs absent, strati
 - `side_on_progress` (SHAPE): exposure *side-on* → outcome `carrier_progressed`; strata ['subtype', 'distance_band']; filter `-`.
 - `turn_recover` (REACT): exposure *turned within 1 s* → outcome `recovered`; strata ['source']; filter `-`.
 
+![Evidence](fig1_evidence.png)
+
+*Stratified risk differences with 95 % bootstrap CIs for the pre-registered comparisons (numbers in
+[RESULTS.md](RESULTS.md)).*
+
 ## 6. Thresholds (dbl/config.py)
 
 - `max_joint_err_cm` = 18.0
@@ -126,6 +156,17 @@ Each finding compares the outcome rate when the cue is present vs absent, strati
 - **Cameras**: broadcast (follows the ball), tactical (top-down), behind goal, follow player, **player's eyes** (camera at the selected player's head, looking along his head yaw — what he could see), free orbit.
 - **Analysis layer**: the timeline shows framework moments (runs, line-breaking passes, duels, recoveries; "key" = beaten in behind / dangerous / led to shot / beaten / not recovered). Click a tick to jump to 3 s before and select the defender; pop-ups narrate moments while playing. The selected player gets a ±60° field-of-view cone projected from his head.
 - **Deep links**: `/?match=1925299&f=30110&focus=560989&cam=follow&play=1` (f = tracking frame, 10 fps). The Moments tab in the app links straight into this view.
+- **Moment clips** (Streamlit *Moments* tab) use the same skeletons for ±1.2 s around one moment:
+
+![3D moment clips](fig2_moments_3d.png)
+
+*Left: open body, runner in view, no lag. Right: square and ball-watching; the runner (brown) starts outside the
+cone, reaction 2.0 s late, beaten in behind.*
+
+![Player's eyes](img/viewer_players_eyes.png)
+
+*Player's eyes: camera at the selected defender's head along his head yaw — what he could see.*
+
 - **Typical workflow**: highest `square_at_run` defender → his square-and-beaten moments → open each in *Player's eyes* to see what he saw → clips for the session.
 
 ## 12. Defensive analysis layer (team shape, live overlays, report, Gemini)
@@ -147,6 +188,11 @@ shown on top of the 3D match (all computed, no LLM):
 | Offside line | yellow dashed line at the second-last defender | — |
 | Pressing intensity (match) | PPDA from SkillCorner engagements ending in regain / disruption / foul in the opponent's own two-thirds; passes per pressing engagement; counter-presses; pressing chains ending in a regain | Trainor (PPDA); Hudl/StatsBomb definitions — **no StatsBomb data used** |
 | Penetration conceded | line-breaking passes conceded (any line / last line), shots conceded | SkillCorner Dynamic Events |
+
+![Tactical camera with all overlays](img/viewer_live_overlays.png)
+
+*All four overlays and the Live defence tab, 6 s before Perth's goal: back line 15 m deeper than usual, 4 free
+attackers inside 35 m, nobody pressing the ball.*
 
 **Live alerts** fire when a threshold is crossed (gap between lines, free attackers, not compact around the ball,
 no pressure on the ball, ≥3 open forward lanes, ≤5 behind the ball). Each numeric tile is compared with the
@@ -174,6 +220,8 @@ vision failure at the reception, marking distance, no shoulder check, blind side
 duel, no recovery, scorer unmarked at the shot; weights doubled when the scorer/assister is involved). It is an
 evidence-backed starting point for video review, not a verdict: tracking and pose cannot see the coach's instructions.
 
+![Goal card in the match report](img/viewer_match_report.png)
+
 In the viewer: white triangles on the timeline mark goals (click = watch the build-up with the most responsible
 defender selected); the *Match report* tab shows a card per goal; Gemini has `goals` and `goal_breakdown` tools and
 the *Goals & who's responsible* quick question.
@@ -195,6 +243,8 @@ Example — goal 1, Brisbane 0–1 Perth (68:25): at the assist, Walid Shour ste
 the key fix; the full correction cuts modelled danger by 52 % (free attackers 5 → 2, nearest defender to the scorer
 8.0 → 0.7 m, shot lane closed). Viewer: *🧪 How to stop it* on each goal card, *🧪 Simulate better defending here* in
 Live defence, or ask Gemini; green figures and dashed arrows show the corrected positions.
+
+![Simulation card](img/viewer_simulation.png)
 
 Limits: attackers would also react; the model rates configurations, it does not replay the match. In the spirit of
 positional-optimisation work from the first Analytics Cup (Shah, 2026), implemented independently.

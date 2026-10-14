@@ -1,60 +1,64 @@
 # Defensive Body Language
 
-**SEE · SHAPE · STANCE · REACT: an analyst framework that turns coaching cues for defending into body-pose metrics.**
+**A defensive-analysis framework you watch, question and correct in 3D. Every full match is replayed with real SkillCorner skeletons. Gemini answers about the frame on screen, explains why a defence broke and simulates the positions that would have stopped it.**
 
 Analytics Cup 2.0 · Defensive Positioning · SkillCorner A-League 2024/25: the two full body-pose matches (Brisbane v Perth, Sydney v Adelaide).
 
+![Figure 1](docs/img/viewer_gemini_simulation.png)
+
+*Figure 1. Brisbane v Perth, goal 1. After "who is responsible?", the follow-up "how could it be avoided?" takes the viewer to the assist pass. Green figures show positions reachable by reacting 1.5 s earlier: danger −52%.*
+
 ## The question
 
-Tracking data tells us **where** a defender was. Coaches mostly correct **how** he was standing: *"see ball and man"*, *"check your shoulder"*, *"open your body"*, *"get low"*, *"turn and run"*. SkillCorner's new body pose (29 joints, 25 fps) makes these cues measurable. Can each one be computed at the moment it matters, and does it show up in what happens next?
+Tracking data shows **where** defenders were. Coaches correct **how** they stood: *"see ball and man"*, *"check your shoulder"*, *"open your body"*, *"get low"*, *"recover goal-side"*. SkillCorner's body pose (29 joints, 25 fps) makes these cues measurable.
 
-## The framework
+Analysts need to **see** the moment, **ask** why, and **show** the fix. The framework is that loop.
 
-- **SEE**: *see ball and man, check your shoulder, don't ball-watch*. Measured at every opponent pass and off-ball run. Metric: head heading (ear axis + nose) relative to the ball, the receiver and the runner, plus head turns more than 75° away from the ball in the previous 3 s.
-- **SHAPE**: *side-on, show him outside, open your body*. Measured at pressing engagements and run starts. Metric: torso heading (shoulders + hips) relative to the line to the carrier and to the own goal, plus the side the chest opens to.
-- **STANCE**: *get low*. Measured at pressing engagements. Metric: hip-height and knee-flexion residual against the player's *own* norm *at the same speed*.
-- **REACT**: *react to the run, turn and recover*. Measured at runs and after being beaten. Metrics: reaction lag relative to the runner (tracking), whether the player turned within 1 s, and whether he got back goal-side within 3 s.
+## The framework: Watch → Ask → Diagnose → Fix
 
-Moments come from SkillCorner **Dynamic Events**: 1,960 on-ball engagements, 1,789 opponent passes (receiver's marker assigned by Hungarian matching on goal-side distance), 1,013 off-ball runs and 206 "beaten" situations, each with phase of play, third, channel and outcome. Two details make pose usable:
+1. **WATCH (3D).** The whole match plays in the browser at 12.5 fps: ~14 of 22 players as real skeletons, the rest as tracking ghosts. Cameras include **player's eyes**, looking along the defender's head yaw. Overlays show block and offside line, marking and free attackers, passing lanes and space control.
+2. **ASK (Gemini, integrated).** Each question carries the frame, selected player, live defensive state and nearby moments. Gemini calls **17 typed, read-only tools** (listed under each answer), **remembers the conversation** (*"and the second goal?"*) and **moves the viewer** to the moments it cites.
+3. **DIAGNOSE (computed, never generated).** Two layers:
+   - **Team shape** (tracking + Dynamic Events): line height, block size, ball-zone compactness, space between lines, free attackers, pressure, PPDA, line breaks conceded.
+   - **Body language**: SEE · SHAPE · STANCE · REACT (below).
 
-1. **Gating.** Every angle requires its joints under SkillCorner's p90 error gate (18 cm) and anatomically plausible widths. Coverage after gating is 98% of duels, 89% of runs and 59% of passes (passes need both a marker and his pose).
-2. **Gait adjustment.** Knee flexion falls from 151° standing to 109° sprinting, so "low" is meaningless in raw form. STANCE is therefore a residual against a speed-binned norm plus a per-player offset.
+   Each goal gets a sequence and per-defender **responsibility indicators**.
+4. **FIX (counterfactual).** At any frame or assist pass, each defender moves within what he could reach reacting 1.5 s earlier (≤9 m), attackers fixed, minimising marking danger, shot lane and attack space near goal. Under 10% reduction means positioning was not the problem.
 
-**Validation:** above 4 m/s, torso heading is within 8.7° (median) of running direction.
+## Body-pose layer: SEE · SHAPE · STANCE · REACT
+
+- **SEE.** Head heading (ear axis + nose) vs ball, receiver and runner; shoulder checks (>75° from the ball in the previous 3 s).
+- **SHAPE.** Torso heading (shoulders + hips) vs the carrier (duels) or own goal (runs): open, side-on, square, turned.
+- **STANCE.** Hip-height and knee-flexion residual vs the player's **own** norm **at the same speed** (knees go 151°→109° from standing to sprinting).
+- **REACT.** Reaction lag to the runner, turning within 1 s, back goal-side within 3 s.
+
+Moments come from **Dynamic Events**: 1,960 engagements, 1,789 opponent passes (marker by Hungarian matching), 1,013 runs, 206 "beaten" situations. Angles are **gated** by SkillCorner's per-joint p90 error (18 cm); above 4 m/s torso heading is within 8.7° (median) of running direction.
 
 ## What the two matches say
 
-![Figure 1](docs/fig1_evidence.png)
+Stratified risk differences, 95% bootstrap CIs, all in [`docs/RESULTS.md`](docs/RESULTS.md):
 
-*Figure 1. Stratified risk differences, 95% bootstrap CIs (1,000 resamples).*
+- **Open your body.** Defenders **square** when a run starts react 0.97 s after the runner, against 0.45 s when open. They are beaten in behind **42% vs 26%** (+16 pp, CI +1 to +31; n=48).
+- **Check your shoulder.** One or more checks in the 3 s before the pass goes with fewer line-breaking passes: 11% vs 17% (−5.9 pp, CI −10 to −2).
+- **See ball and man.** With both in view, the receiver is left unpressured 14% vs 32% of the time (−15.7 pp).
+- **Get low.** A loaded stance goes with more regains: 19% vs 14% (+4.7 pp).
+- **Not supported:** side-on in the duel, blind-side runs, turning within 1 s. Nulls are reported.
+- **Goals.** Perth's winner: Burke-Gilroy beaten by Risdon, Shour **saw the ball but not Williams**, Hingert square at the run; simulation **−52%** (preventable). In Sydney v Adelaide, goals 3 and 4 give −4% and −9%: **not** positioning failures.
 
-- **Open your body (SHAPE).** Defenders standing **square/flat** when a forward run starts react **0.97 s** after the runner. Open defenders react in 0.45 s. Square defenders are **beaten in behind 42% vs 26%** of the time (+16 pp, CI +1 to +31; only 48 square cases).
-- **Check your shoulder (SEE).** When the receiver's marker checked at least once in the 3 s before the pass, line-breaking passes drop from 17% to 11% (−5.9 pp, CI −10 to −2).
-- **See ball and man (SEE).** When both are in the marker's view, the receiver is left completely unpressured 14% vs 32% of the time (−15.7 pp, CI −22 to −10).
-- **Get low (STANCE).** A loaded stance in pressing engagements goes with more regains: 19% vs 14% (+4.7 pp, CI +1 to +8).
-- **Not supported here:** side-on in the duel, blind-side runs (raw gap vanishes within run type), turning within 1 s after being beaten. Reporting nulls is part of the method.
+![Figure 2](docs/img/viewer_players_eyes.png)
 
-![Figure 2](docs/fig2_moments_3d.png)
+*Figure 2. "Player's eyes" on Perth's #29 Mrčela: camera at his head, looking where it points. Card: sees the ball, **his man is outside his view**, body open; plus his SEE-SHAPE-STANCE-REACT profile.*
 
-*Figure 2. The 3D viewer (real skeletons, ±60° head cone). Left: open body, runner in view, no lag. Right: square and ball-watching; the runner (brown) starts outside the cone, reaction 2.0 s late, beaten in behind.*
+## Why the LLM can be trusted here
 
-## The tool: an analyst interface with an LLM on top
-
-`python -m dbl app` opens a Streamlit interface with these tabs:
-
-- **Framework / Teams / Players:** evidence table and SEE-SHAPE-STANCE-REACT profiles.
-- **Moments:** filter by any metric; click a row for a **3D replay**: real skeletons for ±1.2 s, the defender's field-of-view cone, rotate and play (2D view too).
-- **Attack patterns:** which runners start on blind sides, where, and which receivers are fed while their marker can't see both.
-- **Match 3D:** the full match with real skeletons, live defensive overlays (shape, free men, lanes, space) and Gemini reading the frame.
-- **Ask:** e.g. *"Which Sydney defenders get caught square when runs start? Show the moments."*
-
-The **LLM never computes numbers**: Gemini (`google-genai` function calling) can only call eight typed, read-only tools (`find_moments`, `aggregate`, `player_profiles`, `framework_evidence`, ...); every call is shown under the answer. Without `GEMINI_API_KEY` a deterministic keyword router uses the same tools, so everything runs out of the box.
+Gemini **never computes a number**: it only calls framework tools (`defensive_state`, `goal_breakdown`, `simulate_goal_prevention`, `find_moments`, ...), each shown under the answer. Without a key, a deterministic router answers with the same tools. A Streamlit app (`python -m dbl app`) adds filterable tables, profiles and attack patterns.
 
 ## Limitations
 
-- **Two matches.** Results are associations to prioritise video review, not causal effects. CIs come from resampling moments, not matches.
-- **Head ≠ eyes**: field of view ≈ ±60° of head yaw; pose only for players visible on the broadcast.
-- **Thresholds are coaching choices** (side-on 25–70°, check >75° for ≥0.12 s), all in `dbl/config.py`.
+- **Two matches.** The findings are associations, meant to prioritise video review. CIs resample moments, not matches.
+- **Head ≠ eyes.** The field of view is taken as ±60° of head yaw. Pose exists only for players visible on the broadcast.
+- **The simulation holds attackers fixed**: it answers *"was a better shape reachable?"*, not *"would they still score?"*.
+- **Thresholds are coaching choices**, all in `dbl/config.py`.
 
 ## Reproduce
 
@@ -63,14 +67,16 @@ git clone https://github.com/kakaz1n/Analyticscup20.git && cd Analyticscup20
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python -m dbl all          # download + pose + moments/shape/evidence + 3D skeletons (~20 min)
-python -m dbl viewer       # 3D match viewer (localhost:8765)  |  python -m dbl app
+python -m dbl viewer       # the framework: 3D viewer + Gemini (localhost:8765)
 pytest
 ```
 
-If Hugging Face is blocked, put the two zips from [SkillCorner/opendata-bodypose](https://huggingface.co/datasets/SkillCorner/opendata-bodypose) (zipped or unzipped) in `data/pose_raw/`. For the LLM, copy `.env.example` to `.env` with a Gemini key.
+If Hugging Face is blocked, put the two [SkillCorner/opendata-bodypose](https://huggingface.co/datasets/SkillCorner/opendata-bodypose) zips in `data/pose_raw/`. For Gemini, copy `.env.example` to `.env` and add a key.
 
-## References
+## Documentation & references
 
-Bekkers (2025) *Pressing Intensity*; Spearman (2018); Groom et al. (2026); U.S. Soccer *Visual exploratory behaviour*; Wade *Principles of Defensive Play*. Full documentation: [`docs/`](docs/README.md) — install, user guide, framework, results, architecture.
+[`docs/`](docs/README.md) covers install, the illustrated user guide, the framework, results, architecture and data.
+
+References: Bekkers (2025) *Pressing Intensity*; Spearman (2018); Fernández & Bornn (2018); Groom et al. (2026); U.S. Soccer *Visual exploratory behaviour*; Wade *Principles of Defensive Play*.
 
 *Data © SkillCorner, not redistributed. Code: MIT (see `LICENSE.md`).*
