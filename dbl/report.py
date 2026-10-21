@@ -95,14 +95,113 @@ def build_results(path=None) -> str:
                          + (f", nearest defender to the scorer {sim['before'].get('focus_marker_dist')} → {sim['after'].get('focus_marker_dist')} m"
                             if sim['before'].get('focus_marker_dist') is not None else "")
                          + (f"; key fix: **{k['defender']}** — {k['why']} ({k['move_m']} m)" if k else ""))
+                rp = sim.get("reduction_parts")
+                if rp:
+                    L.append(f"  - Split: position alone −{rp['position_only']:.0%}, posture alone (body, head, stance) "
+                             f"−{rp['posture_only']:.0%}, both −{rp['both']:.0%}; defenders seeing ball + man "
+                             f"{sim['before'].get('seeing_ball_and_man')} → {sim['after'].get('seeing_ball_and_man')}")
+            try:
+                from .replay import replay_goal
+                rp_ = replay_goal(m, g["goal_number"])
+                up_ = replay_goal(m, g["goal_number"], clairvoyant=True)
+                d0 = rp_["differences"][0] if rp_["differences"] else None
+                L.append(f"- Better-defence replay ({rp_['seconds']} s before the shot, attack unchanged, defenders read the "
+                         f"play {rp_['limits']['reaction_s']} s late): danger −{rp_['mean_reduction']:.0%} on average, "
+                         f"−{rp_['end_reduction']:.0%} at the shot (perfect anticipation: −{up_['end_reduction']:.0%}); free attackers "
+                         f"{rp_['end_real']['free_attackers']} → {rp_['end_sim']['free_attackers']}"
+                         + (f"; biggest change {d0['defender']} (ends {d0['end_gap_m']} m away, on {d0['ends_on']})" if d0 else "")
+                         + (f"; ball reachable by {', '.join(e['defender'] for e in rp_['events'])}" if rp_["events"] else ""))
+            except Exception as exc:  # noqa: BLE001
+                L.append(f"- Better-defence replay unavailable: {exc}")
             L.append("")
-    L += ["Reading the simulation: a large reduction means the goal was preventable by positioning within the "
-          "reaction window; a small one (< 10 %) means the defence was already near its best reachable shape and the "
+    L += ["Reading the simulation: a large reduction means the goal was preventable by positioning and posture within the "
+          "reaction window (the replay: by moving differently over the last seconds); a small one (< 10 %) means the defence was already near its best reachable shape and the "
           "goal came from elsewhere (finishing, an individual action, a set-piece second ball).", ""]
+    L += _validation_section()
     text = "\n".join(L)
     path = path or ROOT / "docs" / "RESULTS.md"
     path.write_text(text, encoding="utf-8")
     return str(path)
+
+
+def _validation_section() -> list[str]:
+    import json
+    from .config import BUILD_DIR
+    p = BUILD_DIR / "validation.json"
+    if not p.exists():
+        return ["## 5. Validation", "", "_Run `python -m dbl validate` to add this section._", ""]
+    v = json.loads(p.read_text(encoding="utf-8"))
+    L = ["## 5. Validation: does the simulation's danger mean anything, and do the simulated players move like players?", ""]
+    m = v.get("marking")
+    if m:
+        t = m["targeted_within_pass"]
+        L += ["### 5.1 The marking term (what drives most corrections) vs real passes", "",
+              f"{m['n_passes']:,} passes with SkillCorner passing options at the pass moment ({m['n_options']:,} options). "
+              "Coverage = the model's marking term for that attacker with the real defence (position, goal-side, "
+              "vision, body shape, stance).", "",
+              "| Test | Result |", "|---|---|",
+              f"| Completion of targeted passes by coverage tercile (free / half / tight) | "
+              f"{m['completion_by_cover']['free']:.0%} / {m['completion_by_cover']['half']:.0%} / {m['completion_by_cover']['tight']:.0%} (n={m['n_targeted']:,}) |",
+              f"| The option actually chosen is freer than the others at the same pass (AUC) | {t['free']['auc']} "
+              f"(95% CI {t['free']['ci'][0]}–{t['free']['ci'][1]}; SkillCorner xPass {t['xpass_completion']['auc']}) |",
+              f"| Completion, out of match (fit on one match, test on the other), AUC | model coverage "
+              f"{m['completion_out_of_match_auc']['free (model)']}; SkillCorner xPass {m['completion_out_of_match_auc']['xpass (SkillCorner)']}; "
+              f"both {m['completion_out_of_match_auc']['xpass + free']} |",
+              f"| Agreement with SkillCorner xPass (Spearman) | {m['corr_free_vs_xpass']} |",
+              f"| Posture adds to position (AUC chosen option: with vs without posture) | {t['free']['auc']} vs {t['free_pos']['auc']} |", "",
+              "The marking term tracks what passers do and what arrives, and agrees with SkillCorner's independent "
+              "xPass. It adds nothing on top of xPass (which also sees the pass), and the posture effects add "
+              "nothing measurable at the pass moment: the body matters earlier, at run starts (§2).", ""]
+    d = v.get("danger")
+    if d:
+        o = d["out_of_match_auc"]
+        L += ["### 5.2 The total danger vs real shots", "",
+              f"{d['n_seconds']:,} in-possession seconds; outcome = a shot by the team in possession within "
+              f"{d['horizon_s']} s ({d['n_positive']} seconds positive).", "",
+              "| Out-of-match AUC (95% CI) | |", "|---|---|",
+              f"| Ball location only | {o['ball']['auc']} ({o['ball']['ci'][0]}–{o['ball']['ci'][1]}) |",
+              f"| Danger score | {o['danger']['auc']} ({o['danger']['ci'][0]}–{o['danger']['ci'][1]}) |",
+              f"| Ball location + danger | {o['ball+danger']['auc']} ({o['ball+danger']['ci'][0]}–{o['ball+danger']['ci'][1]}) |", "",
+              "**Not supported:** the danger score ranks moments well, but in two matches it does not predict shots "
+              "better than the ball's location. The simulations keep the ball fixed and change only the defence, so "
+              "their reductions are reductions of a principled objective (marking, shot lane, space), not of shot "
+              "probability.", ""]
+    r = v.get("replay")
+    if r:
+        L += ["### 5.3 Do simulated defenders move like real ones? (better-defence replay, all goals)", "",
+              "| | Simulated | Real (same players, same 5 s) |", "|---|---|---|",
+              f"| Speed p50 / p99 / max (m/s) | {r['speed_mps']['simulated']['p50']} / {r['speed_mps']['simulated']['p99']} / {r['speed_mps']['simulated']['max']} | "
+              f"{r['speed_mps']['real']['p50']} / {r['speed_mps']['real']['p99']} / {r['speed_mps']['real']['max']} |",
+              f"| Acceleration p50 / p90 / max (m/s²) | {r['accel_mps2']['simulated']['p50']} / {r['accel_mps2']['simulated']['p90']} / {r['accel_mps2']['simulated']['max']} | "
+              f"{r['accel_mps2']['real']['p50']} / {r['accel_mps2']['real']['p90']} / {r['accel_mps2']['real']['max']} |",
+              f"| Distance run in 5 s (mean, m) | {r['distance_5s_m']['simulated_mean']} | {r['distance_5s_m']['real_mean']} |", "",
+              "Speeds and distances match; simulated players still change pace more often than real ones (p90 "
+              "acceleration). Sensitivity of the headline numbers to the one free control weight (cost of a velocity "
+              "change; default in bold), danger reduction at the shot / averaged over 5 s:", ""]
+        sens = r.get("sensitivity") or []
+        if sens:
+            keys = [k for k in sens[0] if k != "smooth"]
+            L += ["| Goal | " + " | ".join(("**%g**" if row["smooth"] == 0.005 else "%g") % row["smooth"] for row in sens) + " |",
+                  "|---|" + "---|" * len(sens)]
+            for k in keys:
+                L.append(f"| {k} | " + " | ".join(f"−{row[k][0]:.0%} / −{row[k][1]:.0%}" for row in sens) + " |")
+            L += ["", "Read the replay as a well-organised alternative to teach from: the direction is stable, the "
+                  "exact percentage is not.", ""]
+    try:
+        from .patterns import tag_outcomes, TAGS
+        oc = tag_outcomes()
+    except Exception:  # noqa: BLE001
+        oc = {}
+    if oc:
+        L += ["### 5.4 Are the error patterns behind the training plans linked to real shots?", "",
+              "Dangerous moments of both matches: share followed by a shot of the attack within 10 s when the coach "
+              "flags the error vs when it does not; difference stratified by pitch third, 95% bootstrap CI.", "",
+              "| Error pattern | Flagged in | Shot ≤ 10 s: flagged vs not | Δ (95% CI) |", "|---|---|---|---|"]
+        for tag, o in sorted(oc.items(), key=lambda kv: -kv[1]["rd"]):
+            L.append(f"| {TAGS[tag][0]} | {o['n']} | {o['shot_with']:.0%} vs {o['shot_without']:.0%} | "
+                     f"{o['rd'] * 100:+.0f} pp ({o['ci'][0] * 100:+.0f} to {o['ci'][1] * 100:+.0f})" + (" ✔" if o["linked"] else "") + " |")
+        L += ["", "Training plans put errors with ✔ (and a lift above 1 vs ordinary defending) first.", ""]
+    return L
 
 
 if __name__ == "__main__":

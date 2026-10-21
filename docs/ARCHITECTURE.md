@@ -55,12 +55,18 @@ dbl/
   shape.py             team shape time series, shape by phase, event KPIs (PPDA, counter-press…), insights
   goals.py             goal detection (validated vs match sheet), sequence, responsibility indicators
   simulate.py          counterfactual positional optimisation (reachable discs, danger objective)
+  coach.py             posture-aware coach (position + body + head + stance, calibrated on the evidence) and what-if scoring
+  replay.py            better-defence replay: re-simulates all defenders' movement for ≤ 5 s against the real attack
+  patterns.py          error patterns mined from coaching every dangerous moment; drill catalogue; training plans
+  session.py           printable session sheet: load per drill + pitch diagram of the real match situation
+  gait.py              per-player running clips by speed band (animation of simulated defenders)
   report.py            docs/RESULTS.md generator
   query/tools.py       typed tools exposed to the LLM (strict-JSON outputs)
   query/agent.py       Gemini function calling, forced final answer, conversation memory, offline router
   viewer/server.py     local HTTP server + API for the 3D viewer
   viewer/static/       index.html, viewer.js (engine), analysis.js (live metrics, pitch control),
-                       overlays.js (three.js overlays + simulation), panel.js (UI), vendor/three.js r160 (MIT)
+                       overlays.js (three.js overlays + simulation), coach.js (coach/editor/replay),
+                       drill.js (3D tactical drill mode), panel.js (UI), vendor/three.js r160 (MIT)
   viz/                 2D pitch (plotly/matplotlib), 3D moment scene (plotly), README figures
   cli.py               `python -m dbl …`
 app/streamlit_app.py   Streamlit interface
@@ -91,6 +97,8 @@ tests/                 unit (geometry, pose maths) + integration (pipeline, shap
 | `skeletons_p1/p2.parquet` | 250k | 23 joints (int16 cm) around each moment |
 | `full/pose_<period>_<block>.parquet` | 1.1M | full-match skeletons 12.5 fps |
 | `players.parquet` | 36 | squad with roles |
+| `sim_moments.parquet` | 400 | every dangerous moment (+ control frames) coached: danger before / after, kind, phase, third, channel |
+| `sim_corrections.parquet` | 2k | per defender correction: error tag, avoidable danger, move |
 
 `data/build/evidence.json` — the pre-registered comparisons (written by `python -m dbl build`).
 
@@ -309,7 +317,13 @@ tests/                 unit (geometry, pose maths) + integration (pipeline, shap
 | GET `/api/insights` | match | match report (bullets, shape by phase, KPIs, body profile) |
 | GET `/api/series` | match | back-line height / ball-zone area per team (1-min smoothed) |
 | GET `/api/goals` | match | goal breakdowns |
-| GET `/api/simulate` | match & (goal \| frame [, team, focus]) | counterfactual result |
+| GET `/api/simulate` | match & (goal \| frame [, team, focus]) [, player, posture=0\|1] | counterfactual coach result (cached); `player` = coach one defender, `posture=0` = position-only model |
+| GET `/api/gait` | match | per-player running clips (int16 cm, in place, facing +x) by speed band |
+| GET `/api/drill` | match, frame, team, player, tag | drill data for the 3D tactical drill mode (`drill.js`): 5 s of real attack + real and corrected defenders of the drill format, area, drill, load, danger |
+| GET `/training/sheet` | match, team | printable HTML session sheet |
+| GET `/api/training` | match | training plan of both teams (patterns, evidence, players, examples, drills) |
+| GET `/api/replay` | match & (goal \| frame [, team, focus]) [, seconds ≤ 5, mode=clairvoyant] | per-0.2 s simulated defenders (x, y, torso, head, stance), danger real vs simulated, differences, ball-reachable events (cached) |
+| POST `/api/whatif` | `{match, frame, focus, team, edits:[{player_id, x, y, torso, head, loaded}]}` (raw coords / degrees) | danger vs what happened + per-defender read-out (sees ball / man, shape, reaction, stance); positions clamped to the reach disc |
 | GET `/api/players` | match | per-player framework profile |
 | POST `/api/ask` | `{question, match, frame, clock, selected, live, history, session}` | `{text, backend, calls, data, focus}` |
 | POST `/api/reset` | `{session}` | forget a conversation |
@@ -337,8 +351,12 @@ Gemini can only call these read-only functions; each returns strict JSON compute
 | `moments_window` | All framework moments (duels, passes, runs, recoveries) between two tracking frames of a match, with their body-pose features and outcomes. Use to explain what happened in a passage of play. |
 | `goals` | All goals of a match in order: goal_number, scoring team, conceding team, time, tracking frame, scorer, assister, score after the goal. Use this FIRST for any question about a goal ('first goal', 'the 3rd goal'). |
 | `goal_breakdown` | How a goal happened and which defenders carry responsibility. Returns the attacking sequence (passes, line breaks, pressure on the ball), the conceding team's shape at the assist and at the shot, the situation at the shot (nearest defender to the scorer, dista… |
-| `simulate_goal_prevention` | Counterfactual: the safest positions the conceding defenders could physically have reached (within 1.5 s at 6 m/s) at the assist pass of a goal, with attackers fixed. Returns before/after danger metrics (free attackers, distance of the nearest defender to the … |
-| `simulate_defence` | Same counterfactual optimisation at any tracking frame (the team out of possession is optimised). |
+| `simulate_goal_prevention` | Counterfactual coaching at a goal's assist: safest reachable position and posture (torso, head, stance) per conceding defender; before/after metrics, `reduction_parts` {posture_only, position_only, both}, ranked corrections with `gain_position` / `gain_posture` and the coaching sentence. |
+| `simulate_defence` | Same position + posture counterfactual at any tracking frame (the team out of possession is optimised). |
+| `replay_better_defence` | Re-simulate the movement of all defenders for ≤ 5 s (attack unchanged): danger curve, mean / end reduction, who defends differently, ball-reachable events; realistic (reads the play 0.4 s late) or perfect anticipation. |
+| `error_patterns` | Recurring error types of a team from all its simulated dangerous moments: rate, lift vs ordinary defending (bootstrap CI), avoidable danger, players, where, examples. |
+| `training_plan` | Session for a team from its top error patterns: evidence, players, examples, drills with coaching points and KPIs. |
+| `coach_defender` | Teach one defender at a frame: what he should have done (position within reach, body, where to look, stance) with everybody else as they were. |
 
 ### Agent behaviour (`dbl/query/agent.py`)
 
@@ -357,6 +375,7 @@ Gemini can only call these read-only functions; each returns strict JSON compute
   `framework.METRICS`, optionally a comparison in `framework.FINDINGS`; it appears in the app, in the tools and in
   `framework_evidence` automatically.
 - **New threshold**: `config.Thresholds`.
+- **Frame-exact capture** (videos, tours): `window.__manual = true` stops the render loop; `window.__step(1/30)` advances exactly one frame (virtual clock for animations).
 - **New overlay**: compute in `viewer/static/analysis.js::analyse`, draw in `overlays.js::update`, toggle in `index.html`.
 - **New tool for Gemini**: add a typed function with a docstring to `query/tools.py` and to `TOOLS`.
 - **More matches**: add ids to `config.MATCHES` (any SkillCorner match with body pose).

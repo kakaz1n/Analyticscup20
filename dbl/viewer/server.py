@@ -176,7 +176,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
-        if not u.path.startswith("/api/"):
+        if not (u.path.startswith("/api/") or u.path.startswith("/training/")):
             return super().do_GET()
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         try:
@@ -194,12 +194,31 @@ class Handler(SimpleHTTPRequestHandler):
             if u.path == "/api/goals":
                 return self._send(json.dumps(_clean(match_goals(m)), default=_jsonable).encode(), "application/json")
             if u.path == "/api/simulate":
-                from ..simulate import simulate, simulate_goal
-                if "goal" in q:
-                    res = simulate_goal(m, int(q["goal"]))
-                else:
-                    res = simulate(m, int(q["frame"]), q.get("team") or None,
-                                   int(q["focus"]) if q.get("focus") else None)
+                res = _simulate_cached(m, q.get("goal"), q.get("frame"), q.get("team") or None, q.get("focus"),
+                                       q.get("posture", "1") != "0", q.get("player"))
+                return self._send(json.dumps(_clean(res), default=_jsonable).encode(), "application/json")
+            if u.path == "/api/replay":
+                from ..replay import replay, replay_goal
+                sec = float(q.get("seconds", 5))
+                cv = q.get("mode") == "clairvoyant"
+                res = replay_goal(m, int(q["goal"]), sec, cv) if q.get("goal") else \
+                    replay(m, int(q["frame"]), sec, q.get("team") or None, int(q["focus"]) if q.get("focus") else None, cv)
+                return self._send(json.dumps(_clean(res), default=_jsonable).encode(), "application/json")
+            if u.path == "/training/sheet":
+                from ..session import session_sheet_html
+                return self._send(session_sheet_html(m, q["team"]).encode(), "text/html; charset=utf-8")
+            if u.path == "/api/drill":
+                from ..session import drill_board
+                res = drill_board(m, int(q["frame"]), q["team"], int(q["player"]), q["tag"])
+                return self._send(json.dumps(_clean(res), default=_jsonable).encode(), "application/json")
+            if u.path == "/api/gait":
+                from ..gait import gait_json
+                return self._send(gait_json(m), "application/json")
+            if u.path == "/api/training":
+                from ..patterns import training_plan
+                from ..data.load import load_meta
+                mt = load_meta(m)
+                res = {"plans": [training_plan(mt.team_name(t)) for t in (mt.home_id, mt.away_id)]}
                 return self._send(json.dumps(_clean(res), default=_jsonable).encode(), "application/json")
             if u.path == "/api/players":
                 return self._send(json.dumps(_clean(player_cards(m)), default=_jsonable).encode(), "application/json")
@@ -221,6 +240,16 @@ class Handler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
             MEMORY.reset(body.get("session", ""))
             return self._send(b'{"ok":true}', "application/json")
+        if u.path == "/api/whatif":
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(n) or b"{}")
+                from ..coach import whatif
+                res = whatif(int(body["match"]), int(body["frame"]), body.get("edits") or [],
+                             int(body["focus"]) if body.get("focus") else None, body.get("team") or None)
+                return self._send(json.dumps(_clean(res), default=_jsonable).encode(), "application/json")
+            except Exception as exc:  # noqa: BLE001
+                return self._send(json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode(), "application/json", 500)
         if u.path != "/api/ask":
             return self._send(b'{"error":"unknown endpoint"}', "application/json", 404)
         try:
@@ -230,6 +259,15 @@ class Handler(SimpleHTTPRequestHandler):
             return self._send(json.dumps(_clean(ans), default=_jsonable, ensure_ascii=False).encode(), "application/json")
         except Exception as exc:  # noqa: BLE001
             return self._send(json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode(), "application/json", 500)
+
+
+@lru_cache(maxsize=64)
+def _simulate_cached(m, goal, frame, team, focus, posture, player):
+    from ..simulate import simulate, simulate_goal
+    only = [int(player)] if player else None
+    if goal:
+        return simulate_goal(m, int(goal), posture=posture, only=only)
+    return simulate(m, int(frame), team, int(focus) if focus else None, posture=posture, only=only)
 
 
 def _clean(o):

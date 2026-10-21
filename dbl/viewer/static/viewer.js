@@ -4,7 +4,9 @@ import * as THREE from 'three';
 import { OrbitControls } from './vendor/OrbitControls.js';
 import { analyse, pitchControl } from './analysis.js';
 import { Overlays } from './overlays.js';
-import { renderLive, renderReport, selectedCard, addMsg, md } from './panel.js';
+import { initCoach } from './coach.js';
+import { initDrill } from './drill.js';
+import { renderLive, renderReport, renderTraining, selectedCard, addMsg, md } from './panel.js';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
 
@@ -30,6 +32,7 @@ const $ = (id) => document.getElementById(id);
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 $('stage').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
@@ -113,12 +116,57 @@ function buildPitch(L, W) {
     const net = new THREE.Mesh(new THREE.BoxGeometry(2, 7.32, 2.44), new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.12, depthWrite: false }));
     net.position.set(gx + s * 1, 0, 1.22); pitchGroup.add(net);
   }
+  buildStadium(L, W, pitchGroup);
   scene.add(pitchGroup);
+}
+
+// Stands with a crowd, advertising boards and floodlights (instanced: one draw call per kind)
+function buildStadium(L, W, group) {
+  const rng = (() => { let s = 7; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })();
+  const ROWS = 16, gap = 0.95, rowH = 0.42, rowD = 0.85, off = 9;
+  // the broadcast camera sits on the -y side (gantry): that stand starts behind it
+  const sides = [ // [cx, cy, length, outward normal x, y]
+    [0, -(W / 2 + 32), L + 24, 0, -1], [0, W / 2 + off, L + 24, 0, 1],
+    [-(L / 2 + off), 0, W + 24, -1, 0], [L / 2 + off, 0, W + 24, 1, 0]];
+  const standMat = new THREE.MeshStandardMaterial({ color: '#2b3442', roughness: 0.9 });
+  let seats = 0; const per = sides.map((s) => Math.floor(s[2] / gap)); for (const n of per) seats += n * ROWS;
+  const crowd = new THREE.InstancedMesh(new THREE.BoxGeometry(0.42, 0.42, 0.62), new THREE.MeshStandardMaterial({ roughness: 0.85 }), seats);
+  const palette = ['#1f2937', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1', '#7c2d12', '#9a3412', '#e5e7eb', '#0f172a',
+    S.meta ? S.meta.teams.home.color : '#f97316', S.meta ? S.meta.teams.away.color : '#ffffff'];
+  const m4 = new THREE.Matrix4(), col = new THREE.Color(); let k = 0;
+  sides.forEach(([cx, cy, len, nx, ny], si) => {
+    for (let r = 0; r < ROWS; r++) {
+      const d = r * rowD, z = 0.4 + r * rowH;
+      const step = new THREE.Mesh(new THREE.BoxGeometry(nx ? rowD : len, nx ? len : rowD, z), standMat);
+      step.position.set(cx + nx * d, cy + ny * d, z / 2); step.receiveShadow = true; group.add(step);
+      for (let i = 0; i < per[si]; i++) {
+        if (rng() < 0.22) continue;                      // empty seats
+        const u = -len / 2 + (i + 0.5) * gap;
+        m4.makeTranslation(cx + nx * d + (nx ? 0 : u) + (rng() - 0.5) * 0.15, cy + ny * d + (ny ? 0 : u), z + 0.31 + rng() * 0.12);
+        crowd.setMatrixAt(k, m4); crowd.setColorAt(k, col.set(palette[Math.floor(rng() * palette.length)])); k++;
+      }
+    }
+    // advertising boards at the pitch edge
+    const board = new THREE.Mesh(new THREE.BoxGeometry(nx ? 0.15 : len - 20, nx ? len - 20 : 0.15, 0.9),
+      new THREE.MeshStandardMaterial({ color: si % 2 ? '#0e7490' : '#1d4ed8', emissive: si % 2 ? '#083344' : '#172554', roughness: 0.5 }));
+    board.position.set(nx ? cx - nx * (off - 3.5) : cx, ny ? Math.sign(cy) * (W / 2 + 5.5) : cy, 0.45); group.add(board);
+  });
+  crowd.count = k; crowd.instanceMatrix.needsUpdate = true; group.add(crowd);
+  // floodlight masts
+  const mastMat = new THREE.MeshStandardMaterial({ color: '#94a3b8', roughness: 0.6 });
+  const lampMat = new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff7d6', emissiveIntensity: 2.2 });
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+    const x = sx * (L / 2 + off + 10), y = sy * (W / 2 + off + 10);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 34, 8), mastMat);
+    mast.rotation.x = Math.PI / 2; mast.position.set(x, y, 17); group.add(mast);
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(5, 0.6, 3), lampMat);
+    lamp.position.set(x, y, 34); lamp.lookAt(0, 0, 0); group.add(lamp);
+  }
 }
 
 // ------------------------------------------------------------------ actors
 const MAXP = 40;
-let BONES = [], JOINTS = [], J = {}, TORSO = new Set(), BONE_R = [];
+let BONES = [], JOINTS = [], J = {}, TORSO = new Set(), BONE_R = [], BONE_PART = [];
 const boneMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.055, 0.055, 1, 7), new THREE.MeshStandardMaterial({ roughness: 0.55 }), MAXP * 30);
 const headMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.115, 14, 10), new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAXP);
 // torso = one solid capsule from neck to mid-hip, oriented by shoulders & hips (no more "vest" of thick bars)
@@ -128,7 +176,15 @@ const ghostMesh = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.27, 1.15, 
 for (const m of [boneMesh, headMesh, jointMesh, torsoMesh]) { m.castShadow = true; m.frustumCulled = false; scene.add(m); }
 ghostMesh.frustumCulled = false; scene.add(ghostMesh);
 const BALL_R = 0.11;
-const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 18, 14), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35 }));
+const ballTex = (() => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128; const g = c.getContext('2d');
+  g.fillStyle = '#f8fafc'; g.fillRect(0, 0, 256, 128); g.fillStyle = '#111827';
+  for (const [x, y] of [[32, 32], [96, 64], [160, 32], [224, 64], [32, 96], [160, 96], [96, 8], [224, 120]]) {
+    g.beginPath(); for (let i = 0; i < 5; i++) { const a = (i / 5) * Math.PI * 2 - Math.PI / 2; g.lineTo(x + 13 * Math.cos(a), y + 11 * Math.sin(a)); } g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 24, 16), new THREE.MeshStandardMaterial({ map: ballTex, roughness: 0.35 }));
 ball.castShadow = true; scene.add(ball);
 const ballShadow = new THREE.Mesh(new THREE.CircleGeometry(0.14, 20), new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.45, depthWrite: false }));
 ballShadow.position.z = 0.01; scene.add(ballShadow);
@@ -181,6 +237,14 @@ async function loadMeta(id) {
     if (/nose.*neck|neck.*nose/.test(n)) return 1.1;     // neck
     return 0.75;                                         // feet
   });
+  BONE_PART = BONES.map(([a, b]) => {
+    const n = JOINTS[a] + JOINTS[b];
+    if (/Shoulder.*Elbow/.test(n)) return 'shirt';
+    if (/Elbow.*Wrist|nose|neck/.test(n)) return 'skin';
+    if (/Hip.*Knee/.test(n)) return 'shorts';
+    if (/Knee.*Ankle/.test(n)) return 'socks';
+    return 'boot';
+  });
   S.playerInfo = new Map(m.players.map((p) => [p.id, p]));
   const teams = { [m.teams.home.id]: m.teams.home, [m.teams.away.id]: m.teams.away };
   S.teamOf = new Map(m.players.map((p) => [p.id, teams[p.team]]));
@@ -190,6 +254,22 @@ async function loadMeta(id) {
     if (p.gk) base.lerp(new THREE.Color('#111111'), 0.55);
     return [p.id, base];
   }));
+  // kits: shirt = jersey colour, shorts = number colour, socks = jersey; goalkeepers darker
+  const kitOf = (t, gk) => {
+    const shirt = new THREE.Color(t.color), shorts = new THREE.Color(t.number_color || '#ffffff');
+    if (shorts.getHSL({}).l > 0.85 && shirt.getHSL({}).l > 0.85) shorts.set('#1f2937');
+    if (gk) { shirt.lerp(new THREE.Color('#111111'), 0.55); shorts.set('#111827'); }
+    return { shirt, shorts, socks: shirt.clone(), skin: SKIN, boot: BOOT };
+  };
+  S.kitOf = new Map(m.players.map((p) => [p.id, kitOf(teams[p.team], p.gk)]));
+  // selection colour: the candidate farthest from both teams' shirts and shorts (never a team's colour)
+  const cands = ['#22d3ee', '#e879f9', '#facc15', '#a3e635', '#f43f5e', '#ffffff'];
+  const kc = [m.teams.home.color, m.teams.away.color, m.teams.home.number_color, m.teams.away.number_color].filter(Boolean).map((c) => new THREE.Color(c));
+  const dist = (a, b) => Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
+  let best = cands[0], bd = -1;
+  for (const c of cands) { const col = new THREE.Color(c), d = Math.min(...kc.map((k) => dist(col, k))); if (d > bd) { bd = d; best = c; } }
+  SEL.set(best); coneMat.color.set(best); ring.material.color.set(best);
+  document.documentElement.style.setProperty('--sel', best);
   for (const sp of labelSprites.values()) scene.remove(sp);
   labelSprites.clear();
   $('title').textContent = `${m.title}`;
@@ -314,7 +394,8 @@ function headPose(p) {
 
 // ------------------------------------------------------------------ draw
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
-const SEL = new THREE.Color('#f59e0b');
+const SEL = new THREE.Color('#22d3ee');
+const SKIN = new THREE.Color('#c08a6a'), BOOT = new THREE.Color('#111827');
 let lastSk = new Map(), lastTr = null;
 
 function draw() {
@@ -327,8 +408,11 @@ function draw() {
   for (const [pid, p] of sk) {
     if (tr && !tr.pos.has(pid) && !S.playerInfo.has(pid)) continue;
     shown.add(pid);
+    if (coachUI.hiding(pid) || drillUI.hideOther(pid)) continue;
     if (pid === S.sel && S.cam === 'eyes') { updateCone(headPose(p)); ring.visible = false; continue; } // don't render your own head
     const col = pid === S.sel ? SEL : (S.colorOf.get(pid) || new THREE.Color('#aaa'));
+    const kit = S.kitOf.get(pid);
+    const partCol = (part) => (pid === S.sel && (part === 'shirt' || part === 'shorts')) ? SEL : (kit ? kit[part] : col);
     BONES.forEach(([a, b], k) => {
       const ax = p[a * 3], ay = p[a * 3 + 1], az = p[a * 3 + 2], bx = p[b * 3], by = p[b * 3 + 1], bz = p[b * 3 + 2];
       if (!(Number.isFinite(ax) && Number.isFinite(bx))) return;
@@ -337,18 +421,18 @@ function draw() {
       if (TORSO.has(k)) return;
       const r = BONE_R[k] || 1;
       _m.compose(_s.set((ax + bx) / 2, (ay + by) / 2, (az + bz) / 2), _q, new THREE.Vector3(r, len, r));
-      boneMesh.setMatrixAt(bi, _m); boneMesh.setColorAt(bi, col); bi++;
+      boneMesh.setMatrixAt(bi, _m); boneMesh.setColorAt(bi, partCol(BONE_PART[k])); bi++;
     });
-    if (torsoMatrix(p, _m)) { torsoMesh.setMatrixAt(ti, _m); torsoMesh.setColorAt(ti, col); ti++; }
+    if (torsoMatrix(p, _m)) { torsoMesh.setMatrixAt(ti, _m); torsoMesh.setColorAt(ti, partCol('shirt')); ti++; }
     const h = headPose(p);
     if (h) {
       _m.compose(_s.set(h.x, h.y, h.z), _q.identity(), new THREE.Vector3(1, 1, 1));
-      headMesh.setMatrixAt(hi, _m); headMesh.setColorAt(hi, col); hi++;
+      headMesh.setMatrixAt(hi, _m); headMesh.setColorAt(hi, pid === S.sel ? SEL : SKIN); hi++;
     }
     for (const n of ['lWrist', 'rWrist', 'lBigToe', 'rBigToe', 'lKnee', 'rKnee']) {
       const i = J[n] * 3; if (!Number.isFinite(p[i])) continue;
       _m.compose(_s.set(p[i], p[i + 1], p[i + 2]), _q.identity(), new THREE.Vector3(1, 1, 1));
-      jointMesh.setMatrixAt(ji, _m); jointMesh.setColorAt(ji, col); ji++;
+      jointMesh.setMatrixAt(ji, _m); jointMesh.setColorAt(ji, partCol(/Wrist/.test(n) ? 'skin' : /Toe/.test(n) ? 'boot' : 'socks')); ji++;
     }
     if (S.labels) { const sp = label(pid); const z = h ? h.z + 0.55 : 2.3; sp.position.set(h ? h.x : p[0], h ? h.y : p[1], z); sp.visible = true; }
     if (pid === S.sel) {
@@ -358,7 +442,7 @@ function draw() {
   }
   if (tr) {
     for (const [pid, [x, y]] of tr.pos) {
-      if (shown.has(pid)) continue;
+      if (shown.has(pid) || coachUI.hiding(pid) || drillUI.hideOther(pid)) continue;
       if (S.ghosts) {
         const col = pid === S.sel ? SEL : (S.colorOf.get(pid) || new THREE.Color('#aaa'));
         _q.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
@@ -456,6 +540,9 @@ function updateCamera(dt) {
     camPos.lerp(_v.set(b[0] * 0.8, -W / 2 - 22, 17), k);
   } else if (S.cam === 'tactical') {
     camTarget.lerp(_v.set(0, 0, 0), k); camPos.lerp(_v.set(0, -8, 112), k);
+  } else if (S.cam === 'drill' && S.drill && S.drill.view) {   // tactical view framed on the drill area
+    const dv = S.drill.view;
+    camTarget.lerp(_v.set(dv.cx, dv.cy, 0), k); camPos.lerp(_v.set(dv.cx, dv.cy - dv.h * 0.18, dv.h * 1.05), k);
   } else if (S.cam === 'goal') {
     const s = b[0] >= 0 ? 1 : -1;
     camTarget.lerp(_v.set(s * (L / 2 - 22), b[1] * 0.5, 0), k);
@@ -639,7 +726,7 @@ function tick(dt, now) {
         if (ps[1] && S.t > ps[0].end && S.t < ps[1].start) S.t = ps[1].start;
         if (S.t >= ps[ps.length - 1].end) { S.t = ps[ps.length - 1].end; togglePlay(); }
       }
-      draw(); maybeToast(); panelTick(now);
+      draw(); drillUI.tick(); drillUI.drawCounters(lastTr, coachUI.simPositions(S.t)); maybeToast(); panelTick(now);
     }
     if (now - sliderT > 200) { $('slider').value = Math.round(S.t); sliderT = now; drawEvents(); drawChart(); }
     const [c, half] = clock(S.t); $('clock').textContent = c; $('half').textContent = half;
@@ -650,17 +737,26 @@ function tick(dt, now) {
 
 // ------------------------------------------------------------------ defensive analysis
 const overlays = new Overlays(scene);
+const coachUI = initCoach({ scene, camera, renderer, S, overlays, togglePlay: () => togglePlay(), select: (pid) => select(pid), track: () => lastTr, setCam: (c) => setCam(c),
+  skel: () => ({ BONES, TORSO, BONE_R, J, torsoMatrix, headPose }) });
 function periodAt(t) { let p = 1; for (const q of S.meta.periods) if (t >= q.start) p = q.period; return p; }
 function runAnalysis(tr) {
   if (!tr) { overlays.hide(); S.ana = null; return; }
   if (tr.poss) { S.lastPoss = tr.poss; S.lastPossT = S.t; }
   if (S.t - S.lastPossT > 80 || S.t < S.lastPossT - 5) S.lastPoss = tr.poss || '';
-  const prevT = trackAt(S.t - 3);
+  let prevT = trackAt(S.t - 3);
+  // "Hide real defenders" during a better-defence replay: the live analysis runs on the simulated defence
+  const swap = (trk, t) => { const rp = trk && coachUI.replayPositions(t); return rp ? { ...trk, pos: new Map([...trk.pos].map(([k, v]) => [k, rp.get(k) || v])) } : trk; };
+  tr = swap(tr, S.t); prevT = swap(prevT, S.t - 3);
   const prev = prevT ? { pos: prevT.pos, dt: 0.3 } : null;
   S.ana = analyse(S.meta, tr, prev, periodAt(S.t), S.lastPoss, S.playerInfo);
   if (overlays.metaRef !== S.meta) { overlays.setTeams(S.meta); overlays.metaRef = S.meta; }
   overlays.update(S.ana, S.ov, S.meta.pitch[1], animNow());
-  overlays.updateSim(S.sim, S.sim && Math.abs(S.t - S.sim.frame) < 25, animNow());
+  {
+    const show = !!(S.sim && Math.abs(S.t - S.sim.frame) < 25);
+    const tt = animNow(), ph = S.edit ? 1 : 0.5 - 0.5 * Math.cos(Math.min((tt % 3.0) / 1.6, 1) * Math.PI);
+    coachUI.draw(lastSk, show, ph);
+  }
   const now = performance.now();
   if (S.ov.space && S.ana && S.ana.inPlay && (!runAnalysis.pcT || now - runAnalysis.pcT > 250)) {
     runAnalysis.pcT = now;
@@ -693,6 +789,7 @@ async function loadAnalysis(id) {
     S.t = f - 30; if (d) select(d); S.lastToastF = -1; if (play && !S.playing) togglePlay();
   }, S.goals, (q) => { document.querySelector('#tabs button[data-tab=ask]').click(); ask(q); });
   drawChart();
+  fetch(`/api/training?match=${id}`).then((r) => r.json()).then((tr) => { if (id === S.match) renderTraining($('tab-report'), tr, (f) => clock(f)[0]); }).catch(() => {});
 }
 
 const teamNameById = (id) => (S.meta.teams.home.id === id ? S.meta.teams.home.name : S.meta.teams.away.name);
@@ -736,10 +833,15 @@ function selectedLive() {
 }
 
 let panelT = 0;
+// the live panel re-renders 4×/s: never while a button in it is being pressed (a click needs the same element
+// under mousedown and mouseup), otherwise its buttons ('Try your own', 'Play it', …) silently do nothing
+let panelHold = false;
+$('side').addEventListener('pointerdown', () => { panelHold = true; }, true);
+addEventListener('pointerup', () => setTimeout(() => { panelHold = false; }, 60), true);
 function panelTick(now) {
-  if (now - panelT < 250 || !$('tab-live').classList.contains('on')) return; panelT = now;
+  if (panelHold || now - panelT < 250 || !$('tab-live').classList.contains('on')) return; panelT = now;
   const p = S.sel != null ? S.playerInfo.get(S.sel) : null;
-  const card = simCard() + (p ? selectedCard(p, S.teamOf.get(S.sel)?.name || '', selectedLive(), S.cards[S.sel]) : '');
+  const card = drillUI.card() + (S.drill ? '' : coachUI.replayCard()) + simCard() + (p ? selectedCard(p, S.teamOf.get(S.sel)?.name || '', selectedLive(), S.cards[S.sel]) : '');
   const m = S.ana;
   renderLive($('tab-live'), m, { teamName: teamNameById, sel: S.sel, selCard: card,
     baseline: m && m.inPlay ? S.baseline[teamNameById(m.defTeam)] : null, dangerSpace: S.dangerSpace });
@@ -788,28 +890,54 @@ async function runSim(params, fromChat = false) {
   try {
     const r = await (await fetch(`/api/simulate?${qs}`)).json();
     if (r.error) throw new Error(r.error);
-    S.sim = r; S.t = r.frame; S.lastToastF = -1; if (S.playing) togglePlay();
+    S.edit = null; S.replay = null; S.sim = r; S.t = r.frame; S.lastToastF = -1; if (S.playing) togglePlay();
     if (r.key_fix) select(r.key_fix.player_id);
     if (!fromChat) document.querySelector('#tabs button[data-tab=live]').click();
   } catch (e) { alert(`Simulation failed: ${e.message}`); }
   $('loading').textContent = 'Loading…'; $('loading').style.display = 'none';
 }
 window.__runSim = runSim;
+async function runReplay(params, fromChat = false) {
+  const qs = new URLSearchParams({ match: S.match, ...params }).toString();
+  $('loading').textContent = 'Re-simulating the defence (≈20 s)…'; $('loading').style.display = 'block';
+  try {
+    const r = await (await fetch(`/api/replay?${qs}`)).json();
+    if (r.error) throw new Error(r.error);
+    S.sim = null; S.edit = null; S.replay = r; S.lastToastF = -1;
+    S.t = r.start - 10; if (!S.playing) togglePlay();
+    if (r.differences && r.differences[0]) select(r.differences[0].player_id);
+    if (!fromChat) document.querySelector('#tabs button[data-tab=live]').click();
+  } catch (e) { alert(`Replay failed: ${e.message}`); }
+  $('loading').textContent = 'Loading…'; $('loading').style.display = 'none';
+}
+window.__runReplay = runReplay;
+window.__coachExample = (f, pid) => { S.t = f; select(pid); runSim({ frame: f, player: pid }); };
+window.__selectPlayer = (pid) => select(pid);
+const drillUI = initDrill({ scene, S, setCam: (c) => setCam(c), select: (pid) => select(pid), togglePlay: () => togglePlay(),
+  loading: (on, msg) => { $('loading').textContent = on ? msg : 'Loading…'; $('loading').style.display = on ? 'block' : 'none'; } });
+window.__openDrill = (qs) => drillUI.open(qs);
 function simCard() {
   const r = S.sim; if (!r) return '';
-  const b = r.before, a = r.after;
+  const b = r.before, a = r.after, rp = r.reduction_parts;
   const row = (k, n, d = 1) => (b[k] == null ? '' : `<div class="row"><span>${n}</span><span>${(+b[k]).toFixed(d)} → <b>${(+a[k]).toFixed(d)}</b></span></div>`);
-  return `<div class="card" style="border-color:#22c55e"><h4>🧪 Simulation ${r.goal ? `· goal ${r.goal.goal_number} (${r.goal.scorer})` : ''} <span class="muted" style="font-weight:400">${r.moment || clock(r.frame)[0]}</span></h4>
-    <div class="row"><span>Danger</span><span><b style="color:#4ade80">−${Math.round(r.danger_reduction * 100)}%</b></span></div>
+  const pct = (x) => `−${Math.max(0, Math.round(x * 100))}%`;
+  const who = Array.isArray(r.coached) ? ` · coaching ${r.coached.join(', ')}` : '';
+  const head = `<h4>🧪 ${r.goal ? `How to stop goal ${r.goal.goal_number} (${r.goal.scorer})` : 'Better defending'}${who} <span class="muted" style="font-weight:400">${r.moment || clock(r.frame)[0]}</span></h4>`;
+  if (S.edit) return `<div class="card" style="border-color:#22c55e">${head}<div class="row"><span>Auto coach</span><span><b style="color:#4ade80">${pct(r.danger_reduction)}</b></span></div></div>` + coachUI.editCard();
+  const fix = (m) => `<b>${m.defender}</b> — ${m.why}${m.gain_posture > 0.004 && m.gain_position > 0.004 ? ` <span class="muted">(position ${Math.round(100 * m.gain_position / (m.gain || 1))}% · posture ${Math.round(100 * m.gain_posture / (m.gain || 1))}% of his gain)</span>` : ''}`;
+  return `<div class="card" style="border-color:#22c55e">${head}
+    <div class="row"><span>Danger</span><span><b style="color:#4ade80">${pct(r.danger_reduction)}</b></span></div>
+    ${rp ? `<div class="row"><span class="muted">… position alone / posture alone</span><span class="muted">${pct(rp.position_only)} / ${pct(rp.posture_only)}</span></div>` : ''}
     ${row('free_attackers', 'Free attackers near goal', 0)}${row('focus_marker_dist', `Nearest defender to ${r.focus_attacker || 'scorer'} (m)`)}
-    ${row('carrier_pressure_dist', 'Pressure on the ball (m)')}${row('lane_open', 'Open shot lane', 2)}${row('attack_space_m2', 'Attack space near goal (m²)', 0)}
-    ${r.key_fix ? `<div style="margin-top:6px"><b>Key fix:</b> ${r.key_fix.defender} — ${r.key_fix.why} (${r.key_fix.move_m} m)</div>` : ''}
-    <div class="muted" style="font-size:11.5px;margin-top:4px">${r.moves.slice(1, 6).map((m) => `${m.defender}: ${m.why}`).join(' · ')}</div>
-    <div class="muted" style="font-size:10.5px;margin-top:4px">Green = corrected positions reachable in ${r.reaction_window_s}s (≤${r.max_move_m} m); attackers fixed.</div>
-    <div style="display:flex;gap:6px;margin-top:6px"><button onclick="window.__viewer.t=window.__viewer.sim.frame-40;">↺ Replay into it</button><button onclick="window.__viewer.sim=null">Clear</button></div></div>`;
+    ${row('carrier_pressure_dist', 'Pressure on the ball (m)')}${row('seeing_ball_and_man', 'Defenders seeing ball + man', 0)}${row('lane_open', 'Open shot lane', 2)}${row('attack_space_m2', 'Attack space near goal (m²)', 0)}
+    ${r.key_fix ? `<div style="margin-top:6px"><b>Key fix:</b> ${fix(r.key_fix)}</div>` : '<div class="muted" style="margin-top:6px">No better reachable option found: the defence was already near its best.</div>'}
+    <div class="muted" style="font-size:11.5px;margin-top:4px">${(r.moves || []).slice(1, 6).map((m) => `${m.defender}: ${m.why}`).join(' · ')}</div>
+    <div class="muted" style="font-size:10.5px;margin-top:4px">Green bodies = each defender moved, turned and lowered as suggested (reach ≤${r.max_move_m} m in ${r.reaction_window_s} s); green cones = where he should look. Attackers fixed. Posture effects calibrated on this framework's evidence.</div>
+    <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button onclick="window.__coach.enter()">✎ Try your own</button><button onclick='window.__runReplay(${JSON.stringify(r.goal ? { goal: r.goal.goal_number } : { frame: r.frame - 25 })})'>🎬 Re-play 5 s</button><button onclick="window.__viewer.t=window.__viewer.sim.frame-40;">↺ Replay into it</button><button onclick="window.__coach.exit();window.__viewer.sim=null">Clear</button></div></div>`;
 }
 function goFocus(fc) {
   if (fc.sim) { runSim(fc.sim, true); return; }
+  if (fc.replay) { runReplay(fc.replay, true); return; }
   S.t = fc.frame; S.lastToastF = -1;
   if (fc.select) select(fc.select);
   if (fc.cam) setCam(fc.cam);
@@ -885,6 +1013,7 @@ $('newchat').onclick = async () => {
   if (want) await loadMeta(want);
   setCam(S.cam);
   if (params.get('play') === '1') togglePlay();
+  if (params.get('drill')) setTimeout(() => drillUI.open(params.get('drill')), 1500);
   window.__viewer = S; // for debugging / automated screenshots
   requestAnimationFrame(loop);
 })();

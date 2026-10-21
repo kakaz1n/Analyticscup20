@@ -72,7 +72,7 @@ def plan(match_id: int) -> dict[int, list[int] | None]:
 
 
 def save_plan(match_id: int, path: Path) -> Path:
-    path.write_text(json.dumps({str(k): v for k, v in plan(match_id).items()}))
+    path.write_text(json.dumps({str(k): v for k, v in plan(match_id).items()}), encoding="utf-8")
     return path
 
 
@@ -166,6 +166,6 @@ def load(match_id: int) -> pd.DataFrame:
 if __name__ == "__main__":  # chunked use on low-memory / time-limited machines
     # python -m dbl.pose.skeletons <match_id> <src.jsonl> <start_byte> <end_byte> <out.parquet> [plan.json]
     mid, src, a, b, out = int(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), sys.argv[5]
-    keep = json.loads(Path(sys.argv[6]).read_text()) if len(sys.argv) > 6 else plan(mid)
+    keep = json.loads(Path(sys.argv[6]).read_text(encoding="utf-8")) if len(sys.argv) > 6 else plan(mid)
     extract(iter_byte_range(src, a, b), keep).to_parquet(out, index=False, compression="zstd")
     print("DONE", out)

@@ -212,18 +212,78 @@ def goal_breakdown(match_id: int, goal_number: int) -> dict:
 
 
 def simulate_goal_prevention(match_id: int, goal_number: int) -> dict:
-    """Counterfactual: the safest positions the conceding defenders could physically have reached (within 1.5 s at
-    6 m/s) at the assist pass of a goal, with attackers fixed. Returns before/after danger metrics (free attackers,
-    distance of the nearest defender to the scorer and to the ball carrier, open shot lane, attack-controlled space near
-    goal), % danger reduction, and the moves ranked by impact ('key_fix' = the single most valuable correction)."""
+    """Counterfactual coaching at the assist pass of a goal: the safest POSITION (reachable within 1.5 s at 6 m/s)
+    and POSTURE (torso orientation, head / what he sees, loaded stance) for each conceding defender, attackers fixed.
+    Posture effects are calibrated on the framework's evidence (calibration field). Returns before/after danger
+    metrics, % danger reduction, reduction_parts {posture_only, position_only, both}, and the corrections ranked by
+    impact ('key_fix'), each with gain_position / gain_posture and a 'why' a coach can say to the player."""
     from ..simulate import simulate_goal
     return simulate_goal(int(match_id), int(goal_number))
 
 
 def simulate_defence(match_id: int, frame: int) -> dict:
-    """Same counterfactual optimisation at any tracking frame (the team out of possession is optimised)."""
+    """Same position + posture counterfactual at any tracking frame (the team out of possession is optimised)."""
     from ..simulate import simulate
     return simulate(int(match_id), int(frame))
+
+
+def replay_better_defence(match_id: int, goal_number: int = 0, frame: int = 0, seconds: float = 5.0,
+                          perfect_anticipation: bool = False) -> dict:
+    """Re-simulate the MOVEMENT of all defenders for up to 5 s (attack and ball replay exactly as they happened):
+    for a goal (goal_number > 0: the seconds before the shot) or from a tracking frame. Physical limits (7 m/s,
+    5 m/s², body 180°/s, head 360°/s). Returns danger real vs simulated over time, mean / end reduction, who defended
+    most differently (end_gap_m, ends_on, goal_side) and ball_reachable events (block / interception chances).
+    By default defenders read the play 0.4 s late and extrapolate it (realistic); perfect_anticipation=True lets them
+    see the real future (upper bound). The bulky per-frame positions are dropped here; the viewer draws them."""
+    from ..replay import replay, replay_goal
+    cv = bool(perfect_anticipation)
+    r = replay_goal(int(match_id), int(goal_number), float(seconds), cv) if int(goal_number) > 0 else \
+        replay(int(match_id), int(frame), float(seconds), None, None, cv)
+    r = dict(r)
+    r["danger_curve"] = [[f["frame"], f["danger_real"], f["danger_sim"]] for f in r.pop("frames")][::2]
+    return r
+
+
+def error_patterns(team: str) -> dict:
+    """Recurring defensive errors of a team, mined by re-simulating EVERY dangerous moment it faced with the coach
+    (position + posture). Per error type (lost goal-side, too loose, no pressure on the ball, line too high/deep, too
+    wide/narrow, not covering space, ball-watching, square body, upright): moments, rate, lift vs ordinary defending,
+    avoidable danger, players involved, where (third/channel/phase/situation) and example frames."""
+    from ..patterns import error_patterns as ep
+    return {"team": team, "patterns": ep(team)}
+
+
+def training_plan(team: str) -> dict:
+    """A training session for a team built from its top error patterns: per priority the evidence, the players to
+    focus on, example frames, and a drill (objective, setup, rules, coaching points, progression, KPI to track)."""
+    from ..patterns import training_plan as tp
+    return tp(team)
+
+
+def simulation_validity() -> dict:
+    """How far the simulations can be trusted (from `python -m dbl validate`): the marking term vs real passes
+    (completion by coverage, chosen option), the total danger vs real shots (out-of-match AUC vs ball location),
+    the simulated defenders' kinematics vs real ones, the sensitivity of goal reductions to the control weight, and
+    which error patterns are linked to real shots. Cite these when asked whether a simulation is realistic."""
+    import json
+    from ..config import BUILD_DIR
+    p = BUILD_DIR / "validation.json"
+    out = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {"error": "run `python -m dbl validate` first"}
+    if isinstance(out.get("danger"), dict):
+        out["danger"].pop("reliability", None)
+    try:
+        from ..patterns import tag_outcomes, TAGS
+        out["error_patterns_vs_real_shots"] = {TAGS[k][0]: v for k, v in tag_outcomes().items()}
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def coach_defender(match_id: int, frame: int, player_id: int) -> dict:
+    """Teach ONE defender: what he should have done at this frame (position within reach, body orientation, where to
+    look, stance) with everybody else as they were. Returns the same structure as simulate_defence, for him only."""
+    from ..coach import coach_player
+    return coach_player(int(match_id), int(frame), int(player_id))
 
 
 def _json_safe(o):
@@ -254,6 +314,7 @@ def _safe(fn):
 
 TOOLS = [describe_framework, list_columns, find_moments, aggregate, player_profiles, team_profiles,
          framework_evidence, open_moment, list_matches, match_insights, shape_by_phase, defensive_state,
-         moments_window, goals, goal_breakdown, simulate_goal_prevention, simulate_defence]
+         moments_window, goals, goal_breakdown, simulate_goal_prevention, simulate_defence, coach_defender, replay_better_defence, error_patterns, training_plan,
+         simulation_validity]
 TOOLS = [_safe(f) for f in TOOLS]
 TOOL_MAP = {f.__name__: f for f in TOOLS}

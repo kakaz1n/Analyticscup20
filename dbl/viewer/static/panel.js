@@ -27,7 +27,8 @@ const f0 = (v, d = 0) => (Number.isFinite(v) ? v.toFixed(d) : '–');
 
 export function renderLive(el, m, ctx) {
   const { teamName, sel, selCard, baseline, dangerSpace } = ctx;
-  if (!m || !m.inPlay) { el.innerHTML = '<div class="muted">Ball out of play or possession unknown at this instant.</div>' + (selCard || ''); return; }
+  const set = (h) => { if (el.__html !== h) { el.__html = h; el.innerHTML = h; } };   // no DOM churn when nothing changed
+  if (!m || !m.inPlay) { set('<div class="muted">Ball out of play or possession unknown at this instant.</div>' + (selCard || '')); return; }
   const base = baseline || {};
   const cmp = (v, b, higherBad) => {
     if (!Number.isFinite(v) || !Number.isFinite(b)) return '';
@@ -36,7 +37,7 @@ export function renderLive(el, m, ctx) {
   };
   const alerts = m.alerts.length ? m.alerts.map((a) => `<div class="alert ${a.lvl}">${esc(a.txt)}</div>`).join('')
     : '<div class="alert ok">No structural alarm at this instant</div>';
-  el.innerHTML = `
+  set(`
     ${selCard || ''}
     <div><b>${esc(teamName(m.defTeam))}</b> <span class="muted">defending</span></div>
     <div class="kpis">
@@ -51,8 +52,8 @@ export function renderLive(el, m, ctx) {
     </div>
     <div class="muted" style="font-size:11px;margin-bottom:4px">Live alerts</div>
     ${alerts}
-    <div style="margin-top:8px"><button onclick="window.__runSim({frame: Math.round(window.__viewer.t)})">🧪 Simulate better defending here</button></div>
-    <div class="muted" style="font-size:11px;margin-top:8px">Medians = this team's organised-defence values in this match. Ball-zone compactness = hull of the 5 defenders nearest the ball (the compactness linked to regaining possession).</div>`;
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button onclick="window.__runSim({frame: Math.round(window.__viewer.t)})">🧪 Simulate better defending here</button><button onclick="window.__runReplay({frame: Math.round(window.__viewer.t)})">🎬 Better defence, next 5 s</button>${window.__viewer && window.__viewer.sel != null ? '<button onclick="window.__runSim({frame: Math.round(window.__viewer.t), player: window.__viewer.sel})">🎯 What should he have done?</button>' : ''}</div>
+    <div class="muted" style="font-size:11px;margin-top:8px">Medians = this team's organised-defence values in this match. Ball-zone compactness = hull of the 5 defenders nearest the ball (the compactness linked to regaining possession).</div>`);
 }
 
 export function selectedCard(p, team, live, prof) {
@@ -90,7 +91,7 @@ export function renderReport(el, ins, events, clock, onJump, goals, onAsk) {
         <div style="font-size:12px;margin-bottom:4px">${seq}</div>${at}
         <div class="muted" style="font-size:11px;margin-top:4px">Responsibility indicators (${esc(g.conceding)})</div>
         ${top.map((r) => `<div class="row"><span><b style="color:#eef2f7">${esc(r.defender)}</b> · ${r.points} pts</span><span style="text-align:right;font-size:11.5px">${esc(r.reasons.map((x) => x.split(': ').slice(1).join(': ').replace(/ \(\+\d\)$/, '')).join('; '))}</span></div>`).join('')}
-        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button data-goal="${i}" class="gwatch">▶ Watch build-up</button><button data-goal="${i}" class="gsim">🧪 How to stop it</button><button data-goal="${i}" class="gask">Ask Gemini</button></div></div>`;
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button data-goal="${i}" class="gwatch">▶ Watch build-up</button><button data-goal="${i}" class="gsim">🧪 How to stop it</button><button data-goal="${i}" class="grep">🎬 Better defence (5 s)</button><button data-goal="${i}" class="gask">Ask Gemini</button></div></div>`;
     });
   }
   for (const t of ins.teams) {
@@ -115,6 +116,7 @@ export function renderReport(el, ins, events, clock, onJump, goals, onAsk) {
     const f = g.sequence && g.sequence.length ? Math.max(g.sequence[0].frame, g.goal.frame - 150) : g.goal.frame - 120;
     onJump(f + 30, null, true);
   }));
+  el.querySelectorAll('.grep').forEach((b) => (b.onclick = () => window.__runReplay({ goal: goals[Number(b.dataset.goal)].goal.goal_number })));
   el.querySelectorAll('.gsim').forEach((b) => (b.onclick = () => window.__runSim({ goal: goals[Number(b.dataset.goal)].goal.goal_number })));
   el.querySelectorAll('.gask').forEach((b) => (b.onclick = () => {
     const g = goals[Number(b.dataset.goal)].goal;
@@ -127,4 +129,37 @@ export function addMsg(chat, role, html, extra = '') {
   d.className = `msg ${role}`; d.innerHTML = html + extra;
   chat.appendChild(d); chat.parentElement.scrollTop = chat.parentElement.scrollHeight;
   return d;
+}
+
+// Error patterns mined from the simulations + training plan (dbl/patterns.py)
+export function renderTraining(el, data, clock) {
+  if (!data || !data.plans || !data.plans.length) return;
+  let h = '<h3>🏋️ Error patterns → training plan</h3><div class="muted" style="font-size:11.5px;margin-bottom:6px">Every dangerous moment was re-simulated by the coach (position + posture); corrections are grouped by error type and ranked first when they are specific to danger (✔ lift) <i>and</i> linked to real shots (✔ real shots, same pitch third, both matches).</div>';
+  for (const tp of data.plans) {
+    if (tp.error) continue;
+    h += `<div class="card"><h4>${esc(tp.team)} <span class="muted" style="font-weight:400">· ${tp.dangerous_moments_coached} dangerous moments simulated</span></h4>`;
+    for (const b of tp.session) {
+      const d = b.drill;
+      h += `<div style="margin:8px 0 4px"><b>${b.priority}. ${esc(b.pattern)}</b> <span class="pill mid">${esc(b.principle)}</span></div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin:3px 0;font-size:11px" title="${esc(b.evidence)}">
+          <span class="pill">${b.moments}/${b.dangerous_moments} dangerous moments (${Math.round(100 * b.rate)}%)</span>
+          ${b.lift_ci ? `<span class="pill ${b.robust ? 'good' : ''}">${b.lift.toFixed(1)}× vs ordinary defending (${b.lift_ci[0].toFixed(1)}–${b.lift_ci[1].toFixed(1)})${b.robust ? ' ✔' : ''}</span>` : ''}
+          ${b.outcome ? `<span class="pill ${b.linked ? 'good' : ''}">real shots ≤10 s: ${Math.round(100 * b.outcome.shot_with)}% vs ${Math.round(100 * b.outcome.shot_without)}%${b.linked ? ' ✔' : ' (n.s.)'}</span>` : ''}
+        </div>
+        <div style="font-size:12px;margin-top:3px">Focus: ${b.players.slice(0, 3).map((p) => `<a href="#" class="tsel" data-p="${p.player_id}" style="color:#fbbf24">${esc(p.defender)}</a> (${p.moments})`).join(', ')}</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">${b.examples.map((e) => `<button class="tex" data-f="${e.frame}" data-p="${e.player_id}" title="${esc(e.kind)}">▶ ${clock(e.frame)} ${esc(e.defender)}</button>`).join('')}</div>
+        ${b.examples.length ? `<div style="margin-top:5px"><button class="tboard" data-q="${esc(new URLSearchParams({ match: b.examples[0].match_id, frame: b.examples[0].frame, team: tp.team, player: b.examples[0].player_id, tag: b.tag }).toString())}">🎬 Show the drill (3D tactical)</button></div>` : ''}
+        <details style="margin-top:4px"><summary style="cursor:pointer;font-size:12.5px">🏃 Drill: <b>${esc(d.name)}</b> (${b.minutes}')</summary>
+          <div style="font-size:12px;line-height:1.45;margin-top:4px"><b>Objective</b> ${esc(d.objective)}<br><b>Setup</b> ${esc(d.setup)}<br><b>Rules</b> ${esc(d.rules)}<br>
+          <b>Coaching points</b><ul style="margin:2px 0 2px 16px;padding:0">${d.coaching.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
+          <b>Progression</b> ${esc(d.progression)}<br><b>Track next match</b> ${esc(d.kpi)}</div></details>`;
+    }
+    h += `<div class="muted" style="font-size:11.5px;margin-top:6px"><b>Session:</b> ${tp.session_outline.map(esc).join(' → ')}</div>
+      <div style="margin-top:6px"><button onclick="window.open('/training/sheet?match=' + window.__viewer.match + '&team=' + encodeURIComponent(${JSON.stringify(tp.team).replace(/"/g, '&quot;')}), '_blank')">📋 Session sheet (printable, real situations)</button></div></div>`;
+  }
+  h += '<div class="muted" style="font-size:11px">Model-derived priorities: verify with the KPI in the next match. ▶ jumps to the moment and coaches that defender.</div>';
+  const box = document.createElement('div'); box.innerHTML = h; el.prepend(box);
+  box.querySelectorAll('.tboard').forEach((b) => (b.onclick = () => window.__openDrill(b.dataset.q)));
+  box.querySelectorAll('.tex').forEach((b) => (b.onclick = () => window.__coachExample(Number(b.dataset.f), Number(b.dataset.p))));
+  box.querySelectorAll('.tsel').forEach((a) => (a.onclick = (e) => { e.preventDefault(); window.__selectPlayer(Number(a.dataset.p)); }));
 }

@@ -4,7 +4,10 @@
   pose       extract body-pose features from data/pose_raw/<match>.jsonl[.zip]
   build      build defensive moments + evidence for both matches
   skeletons  keep raw 3D skeletons around every moment (for the 3D viewer)
-  all        download + pose + build + skeletons + fullmatch
+  all        download + pose + build + skeletons + fullmatch + patterns + gait + validate
+  patterns   coach every dangerous moment -> error patterns + docs/TRAINING.md
+  gait       running clips for the simulated defenders
+  validate   test the simulation's danger score against real passes and shots
   fullmatch  full-match skeletons at 12.5 fps (for the match viewer)
   viewer     open the full-match 3D viewer (http://localhost:8765)
   ask "..."  ask a question (Gemini if GEMINI_API_KEY is set, offline otherwise)
@@ -25,7 +28,7 @@ def _load_env() -> None:
     env = ROOT / ".env"
     if env.exists():
         import os
-        for line in env.read_text().splitlines():
+        for line in env.read_text(encoding="utf-8").splitlines():
             if "=" in line and not line.strip().startswith("#"):
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
@@ -87,6 +90,10 @@ def cmd_all(args):
     cmd_build(args)
     cmd_skeletons(args)
     cmd_full(args)
+    args.workers = getattr(args, "workers", 2)
+    cmd_patterns(args)
+    cmd_gait(args)
+    cmd_validate(args)
 
 
 def cmd_ask(args):
@@ -124,11 +131,51 @@ def cmd_report(_):
     print(build_results())
 
 
+def cmd_patterns(args):
+    from .patterns import build_patterns, write_training_doc, _load
+    for m in MATCHES:
+        print(f"[{m}] coaching every dangerous moment (+ control frames)…", flush=True)
+        build_patterns(m, workers=args.workers, force=args.force)
+    _load.cache_clear()
+    print("wrote", write_training_doc())
+
+
+def cmd_gait(args):
+    from .gait import build_gait
+    for m in MATCHES:
+        lib = build_gait(m, force=args.force)
+        print(f"[{m}] gait clips for {len(lib)} players")
+
+
+def cmd_validate(args):
+    import json
+    from .validate import validate, validate_marking, validate_replay
+    from .config import BUILD_DIR
+    w = getattr(args, "workers", 2)
+    res = {"marking": validate_marking(workers=w, force=getattr(args, "force", False)),
+           "danger": validate(workers=w, force=getattr(args, "force", False)),
+           "replay": validate_replay()}
+    (BUILD_DIR / "validation.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    m, d = res["marking"], res["danger"]
+    print(f"marking term: targeted option freer {m['targeted_within_pass']['free']['auc']} (within pass), "
+          f"completion free/half/tight {m['completion_by_cover']}")
+    print(f"danger vs shot in 10 s, out of match: danger {d['out_of_match_auc']['danger']['auc']}, "
+          f"ball only {d['out_of_match_auc']['ball']['auc']}")
+    r = res["replay"]
+    print(f"replay kinematics: accel p99 sim {r['accel_mps2']['simulated']['p99']} vs real {r['accel_mps2']['real']['p99']} m/s2; "
+          f"speed max sim {r['speed_mps']['simulated']['max']} vs real {r['speed_mps']['real']['max']} m/s")
+
+
 def cmd_app(_):
     subprocess.run([sys.executable, "-m", "streamlit", "run", str(ROOT / "app" / "streamlit_app.py")], check=False)
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):      # never crash on a console/pipe that cannot print "→", "…"
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:  # noqa: BLE001
+            pass
     ap = argparse.ArgumentParser(prog="dbl", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("download").set_defaults(fn=cmd_download)
@@ -139,6 +186,11 @@ def main(argv=None):
     p = sub.add_parser("ask"); p.add_argument("question", nargs="+"); p.set_defaults(fn=cmd_ask)
     sub.add_parser("app").set_defaults(fn=cmd_app)
     sub.add_parser("report").set_defaults(fn=cmd_report)
+    p = sub.add_parser("patterns"); p.add_argument("--force", action="store_true"); p.add_argument("--workers", type=int, default=2)
+    p.set_defaults(fn=cmd_patterns)
+    p = sub.add_parser("validate"); p.add_argument("--force", action="store_true"); p.add_argument("--workers", type=int, default=2)
+    p.set_defaults(fn=cmd_validate)
+    p = sub.add_parser("gait"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_gait)
     p = sub.add_parser("viewer"); p.add_argument("--port", type=int, default=8765)
     p.add_argument("--no-browser", action="store_true"); p.set_defaults(fn=cmd_viewer)
     p = sub.add_parser("fullmatch"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_full)

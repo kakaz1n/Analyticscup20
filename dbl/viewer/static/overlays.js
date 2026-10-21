@@ -26,29 +26,34 @@ export class Overlays {
   }
 
   // ---- counterfactual simulation: green ghosts at corrected positions + arrows from the real ones
-  updateSim(sim, show, t) {
+  // specs: [{from, to, capsule}] in raw coords; ph = animation phase 0..1 (real -> corrected)
+  updateSim(specs, show, ph) {
     if (!this.simGhost) {
       const mat = new THREE.MeshStandardMaterial({ color: '#22c55e', transparent: true, opacity: 0.55, depthWrite: false, emissive: '#14532d' });
-      this.simGhost = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.3, 1.15, 4, 10), mat, 12);
+      this.simGhost = new THREE.InstancedMesh(new THREE.CapsuleGeometry(0.3, 1.15, 4, 10), mat, 14);
       this.simGhost.frustumCulled = false; this.scene.add(this.simGhost);
-      this.simSeg = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: '#4ade80', transparent: true, opacity: 0.95, depthWrite: false }), 60);
+      this.simSeg = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: '#4ade80', transparent: true, opacity: 0.95, depthWrite: false }), 90);
       this.simSeg.frustumCulled = false; this.simSeg.renderOrder = 5; this.scene.add(this.simSeg);
-      this.simRing = new THREE.InstancedMesh(new THREE.RingGeometry(0.55, 0.8, 28), new THREE.MeshBasicMaterial({ color: '#4ade80', transparent: true, opacity: 0.9, depthWrite: false }), 12);
+      this.simRing = new THREE.InstancedMesh(new THREE.RingGeometry(0.55, 0.8, 28), new THREE.MeshBasicMaterial({ color: '#4ade80', transparent: true, opacity: 0.9, depthWrite: false }), 14);
       this.simRing.frustumCulled = false; this.scene.add(this.simRing);
     }
-    if (!show || !sim || !sim.moves) { this.simGhost.count = 0; this.simSeg.count = 0; this.simRing.count = 0; return; }
-    const ph = 0.5 - 0.5 * Math.cos(Math.min((t % 3.0) / 1.6, 1) * Math.PI); // 0→1 then hold
-    let g = 0, k = 0;
+    if (!show || !specs || !specs.length) { this.simGhost.count = 0; this.simSeg.count = 0; this.simRing.count = 0; return; }
+    let g = 0, k = 0, r = 0;
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
-    for (const m of sim.moves.slice(0, 12)) {
-      const x = m.from[0] + (m.to[0] - m.from[0]) * ph, y = m.from[1] + (m.to[1] - m.from[1]) * ph;
-      this._m.compose(new THREE.Vector3(x, y, 0.88), q, new THREE.Vector3(1, 1, 1));
-      this.simGhost.setMatrixAt(g, this._m);
+    for (const m of specs.slice(0, 14)) {
+      if (!m.from || !m.to || !Number.isFinite(m.from[0]) || !Number.isFinite(m.to[0])) continue;
+      if (m.capsule) {
+        const x = m.from[0] + (m.to[0] - m.from[0]) * ph, y = m.from[1] + (m.to[1] - m.from[1]) * ph;
+        this._m.compose(new THREE.Vector3(x, y, 0.88), q, new THREE.Vector3(1, 1, 1));
+        this.simGhost.setMatrixAt(g++, this._m);
+      }
       this._m.compose(new THREE.Vector3(m.to[0], m.to[1], 0.05), this._q.identity(), new THREE.Vector3(1, 1, 1));
-      this.simRing.setMatrixAt(g, this._m); g++;
+      this.simRing.setMatrixAt(r++, this._m);
       // dashed arrow from real to corrected position
-      const dx = m.to[0] - m.from[0], dy = m.to[1] - m.from[1], len = Math.hypot(dx, dy), ux = dx / len, uy = dy / len;
-      for (let s = 0; s < len - 0.4 && k < 58; s += 1.0) {
+      const dx = m.to[0] - m.from[0], dy = m.to[1] - m.from[1], len = Math.hypot(dx, dy);
+      if (len < 0.5) continue;
+      const ux = dx / len, uy = dy / len;
+      for (let s = 0; s < len - 0.4 && k < 88; s += 1.0) {
         const e = Math.min(s + 0.6, len - 0.4);
         const a = [m.from[0] + ux * s, m.from[1] + uy * s], b = [m.from[0] + ux * e, m.from[1] + uy * e];
         this._q.setFromAxisAngle(this._z, Math.atan2(uy, ux));
@@ -56,7 +61,7 @@ export class Overlays {
         this.simSeg.setMatrixAt(k++, this._m);
       }
     }
-    this.simGhost.count = g; this.simRing.count = g; this.simSeg.count = k;
+    this.simGhost.count = g; this.simRing.count = r; this.simSeg.count = k;
     for (const mm of [this.simGhost, this.simSeg, this.simRing]) mm.instanceMatrix.needsUpdate = true;
   }
 

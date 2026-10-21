@@ -7,7 +7,7 @@ Two interfaces share the same data and tools:
 - **Streamlit app** (`python -m dbl app`): tables, filters, profiles, evidence, 3D/2D clips of single moments; it
   embeds the viewer in the *Match 3D* tab.
 
-The **framework is the viewer with Gemini inside it**: a loop of *Watch → Ask → Diagnose → Fix* on the real match.
+The **framework is the viewer with Gemini inside it**: a loop of *Watch → Ask → Diagnose → Fix → Train* on the real match.
 
 ![Viewer with Gemini answering about goal 1](img/viewer_gemini_goal.png)
 
@@ -22,7 +22,7 @@ The **framework is the viewer with Gemini inside it**: a loop of *Watch → Ask 
 | Area | What it shows |
 |---|---|
 | Top-left | Match selector, match clock (`45+05:07` = stoppage time), number of players with a skeleton right now |
-| Left | Squads. Click a player to select him (orange + field-of-view cone). Green dot = body pose available at this instant |
+| Left | Squads. Click a player to select him (shirt and shorts turn to a highlight colour chosen to differ from both kits, + field-of-view cone). Green dot = body pose available at this instant |
 | Top-right | Cameras, display toggles, **Analysis** overlay toggles |
 | Right panel | **Live defence** · **Match report** · **Ask Gemini** |
 | Bottom | Play/pause, speed (0.25×–8×), back-line height chart of both teams, event timeline, scrubber |
@@ -103,17 +103,109 @@ pop-ups (framework moments narrated while playing).
 Click *🧪 How to stop it* on a goal card (or *Simulate better defending here*, or ask Gemini). The viewer pauses at
 the assist pass and shows:
 
-- **green figures + dashed arrows**: the corrected positions, animated from where the defenders really were;
-- a **Simulation** card: danger reduction, free attackers, distance to the scorer, pressure on the ball, open shot
-  lane, attack space near goal — before → after — and the **key fix** (the single most valuable correction).
+- **green bodies + dashed arrows**: each defender's *own skeleton*, moved, turned and lowered as suggested, animated
+  from where he really was; a **green cone** shows where he should have been looking;
+- a **Simulation** card: danger reduction, split into *position alone* vs *posture alone* (body, head, stance), free
+  attackers, distance to the scorer, pressure on the ball, defenders seeing ball + man, open shot lane, attack space
+  near goal — before → after — and the **key fix** with its reason (e.g. *"tighter on Williams (goal-side)"*,
+  *"open the body: square → open (reacts 1.07 → 0.49 s)"*, *"head 40° left: ball and Klimala in view"*, *"get low on
+  the ball carrier"*).
+- **🎯 What should he have done?** (Live defence, with a player selected): the same coach for that one defender, with
+  everybody else as they were.
 
 ![Simulation card in Live defence](img/viewer_simulation.png)
 
-*Goal 1 simulation: danger −52 %, free attackers 5 → 2, nearest defender to the scorer 8.0 → 0.7 m; key fix Walid Shour goal-side of Williams. Green figures = corrected positions.*
+*Goal 1 simulation (screenshot from the position-only version; the posture-aware model gives −46 %, almost all from position): free attackers 5 → 2, nearest defender to the scorer 8.0 → 0.7 m; key fix Walid Shour goal-side of Williams.*
 
 Rules: each defender can only reach where he could have been if he had reacted 1.5 s earlier (≤ 9 m at 6 m/s);
-attackers are held fixed. A big reduction means positioning could have prevented it; < 10 % means the defence was
-already near its best reachable shape. *↺ Replay into it* rewinds 4 s so you see the moment arrive.
+heads turn at most 75° from the torso; attackers are held fixed. A big reduction means positioning/posture could have
+prevented it; < 10 % means the defence was already near its best reachable shape. *↺ Replay into it* rewinds 4 s so
+you see the moment arrive.
+
+#### 🎬 Better-defence replay — move everybody, up to 5 s
+
+*🎬 Better defence (5 s)* on a goal card, *🎬 Re-play 5 s* on the simulation card, or *🎬 Better defence, next 5 s*
+in Live defence. The server re-simulates every defender's movement (≈ 20 s, then cached) and the viewer plays it:
+
+- **What you see.**
+  - The attack and the ball are exactly what happened.
+  - **Green bodies** are the simulated defenders, animated with each player's own running clip at the simulated
+    speed and heading.
+  - **Dashed arrows** show the gap to where they really were.
+  - **Hide real defenders** leaves only the simulated defence. Lines, marking, free men and space are then
+    recomputed on it.
+- **The card.**
+  - The **danger curve**, real (red) vs simulated (green), with the cursor at the current instant.
+  - Danger now / on average / at the shot, free attackers, and the nearest defender to the scorer.
+  - Who would have defended most differently (the man he ends on, goal-side or not).
+  - Warnings when a simulated defender could reach the ball. From there the real play would have changed.
+- **Realism.**
+  - By default the defenders read the play **0.4 s late** and extrapolate it.
+  - *Perfect anticipation* shows the upper bound when they "know" the future.
+  - Physics per player: his own top speed, slower sideways (70 %) and back-pedalling (50 %), 5 m/s², body 180°/s,
+    head 360°/s; no sideways sprinting.
+  - Structure: the back line stays a line in its order; each player stays within ~8 m of his real zone.
+  - The green players run with **their own running clips** at the simulated speed (no sliding).
+
+![Better-defence replay](img/fig1_replay.png)
+
+#### 🏋️ Error patterns → training plan (Match report tab)
+
+The top of *Match report* shows, for each team, the **recurring errors** found by re-simulating every dangerous
+moment it faced: line-breaking passes, shot possessions, dangerous runs, runs in behind and duels lost (≈ 110–170 per
+team).
+
+- **How each priority is built.** Every correction the coach proposes is tagged with an error type:
+  - lost goal-side, too loose on his man, no pressure on the ball;
+  - line too high / too deep, too wide / too narrow, not covering space;
+  - ball-watching, square body, upright.
+- **What each priority shows.**
+  - **Evidence badges:** how often; the **lift** vs ordinary defending (95 % CI; ✔ when it excludes 1); and
+    **real shots ≤ 10 s**, how often the attack really shot within 10 s when the coach flags this error vs when it
+    does not (same pitch third, both matches; ✔ when the CI excludes 0). Hover for the full sentence.
+  - **Players to focus** on (click to select).
+  - **▶ example clips**: they jump to the moment and run the coach for that defender.
+  - A **drill**: objective, setup, rules, coaching points in SEE / SHAPE / STANCE / REACT terms, progression, and the
+    **KPI to track** in the next match.
+- **Ranking.** Errors with both ✔ (specific to danger *and* linked to real shots) come first, then those with one,
+  then by the avoidable danger that is specific to dangerous moments. Example clips are taken in the drill's zone
+  (the final third for marking drills) when the team has one.
+- **📋 Session sheet.** A printable page (Print / PDF) for the coaching staff: microcycle day, load (sets × reps,
+  work:rest, space, numbers, RPE), and for every drill a **pitch diagram of the real situation from the match**
+  (attack, defence, ball, and the coach's corrections as green arrows) to set the drill up from.
+- **🎬 Show the drill (3D tactical).** The 3D viewer switches to a tactical camera framed on the drill area and
+  replays the real moment of the match with only the drill's players, as big numbered counters on the grass:
+  - drill area, cones and gates (or the line band for line drills);
+  - the attack moving exactly as it did;
+  - the defenders in three modes: **1 · what happened** (kit colour), **2 · the drill** (green, moving as the coach
+    corrects, with body orientation), **3 · compare** (arrows from the real to the corrected position);
+  - *Demo* alternates 1 → 2;
+  - timed coaching captions, the danger of the situation (real vs drill), set-up, load and KPI.
+  *Exit* restores the camera and overlays. The printable session sheet links each drill to this view.
+- **Full plans.** The complete plans, with the session outline, are in [TRAINING.md](TRAINING.md). Ask Gemini:
+  *"What should Brisbane train this week?"*
+
+![Training plan](img/fig2_training.png)
+
+#### ✎ Try your own — teach a different action
+
+*✎ Try your own* turns the simulation into an editor:
+- The camera switches to **Tactical** (top-down) and a green banner explains the controls.
+- Every defender gets a **green grab handle**. The editor starts from **what happened**, so each change you make
+  appears as a green player of its own. *Load the auto coach* starts from the suggestion instead.
+
+| Action | Effect |
+|---|---|
+| **Drag** a handle | moves the defender; he cannot leave his green reach circle (where he could be reacting 1.5 s earlier) |
+| **Q / E** or ↺/↻ body | turn his body 15° (head follows) |
+| **Z / C** or ↺/↻ head | turn only his head 15° (max 75° from the body) |
+| **L** or *stance* | toggle loaded / upright stance |
+| **R** or *undo* | undo that player · **Esc** / *Done* leave the editor (camera restored) |
+
+Every change is re-scored by the server in ~50 ms: *Your version* shows danger vs what happened (and vs the
+automatic coach), free attackers, pressure on the ball, defenders seeing ball + man, and for the edited player whether
+he sees the ball and his man, his body shape and its reaction time, and his stance. Use it in video sessions: let the
+player propose where he should have been, then show the number.
 
 ### 1.7 Ask Gemini — the analyst assistant
 

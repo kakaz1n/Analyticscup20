@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #0b1220; --panel: rgba(12, 18, 32, 0.86); --line: rgba(255,255,255,0.12);
-    --ink: #eef2f7; --muted: #9aa7b8; --accent: #f59e0b;
+    --ink: #eef2f7; --muted: #9aa7b8; --accent: #f59e0b; --sel: #22d3ee;
     --run: #f59e0b; --pass: #38bdf8; --duel: #f472b6; --recovery: #a3e635;
   }
   * { box-sizing: border-box; }
@@ -29,7 +29,7 @@
   #players h3 { margin: 6px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
   .pl { display: flex; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 6px; cursor: pointer; }
   .pl:hover { background: rgba(255,255,255,0.08); }
-  .pl.sel { background: rgba(245,158,11,0.25); }
+  .pl.sel { background: color-mix(in srgb, var(--sel) 28%, transparent); outline: 1px solid var(--sel); }
   .num { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none; }
   .pose-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; margin-left: auto; opacity: 0; }
   .pose-dot.on { opacity: 1; }

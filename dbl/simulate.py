@@ -188,7 +188,12 @@ class Scene:
 
 
 def simulate(match_id: int, frame: int, defending_team: str | None = None, focus_attacker: int | None = None,
-             react_s: float = REACT_S) -> dict:
+             react_s: float = REACT_S, posture: bool = True, only: list[int] | None = None) -> dict:
+    """Better reachable defending at a frame. posture=True (default) also corrects body orientation,
+    head and stance (dbl.coach); posture=False is the position-only model. `only` = coach these defenders."""
+    if posture or only:
+        from .coach import coach
+        return coach(match_id, frame, defending_team, focus_attacker, only=only, react_s=react_s)
     sc = Scene(match_id, frame, defending_team, focus_attacker, react_s)
     if len(sc.D) < 5:
         return {"error": "not enough defenders tracked at this frame"}
@@ -237,12 +242,13 @@ def simulate(match_id: int, frame: int, defending_team: str | None = None, focus
     }
 
 
-def simulate_goal(match_id: int, goal_number: int, react_s: float = REACT_S) -> dict:
+def simulate_goal(match_id: int, goal_number: int, react_s: float = REACT_S, posture: bool = True,
+                  only: list[int] | None = None) -> dict:
     """Simulate the conceding team's best reachable shape at the assist (or 1 s before the shot)."""
     from .goals import find_goals
     g = find_goals(match_id)[goal_number - 1]
     f = g["assist_frame"] or (g["frame"] - 10)
-    res = simulate(match_id, f, g["conceding"], g.get("scorer_id"), react_s)
+    res = simulate(match_id, f, g["conceding"], g.get("scorer_id"), react_s, posture, only)
     res["goal"] = {k: g[k] for k in ("goal_number", "time", "scorer", "assist", "team", "conceding", "frame")}
     res["moment"] = "assist pass" if g["assist_frame"] else "1 s before the shot"
     return res

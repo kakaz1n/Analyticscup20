@@ -37,6 +37,14 @@ the defenders in order of responsibility with their concrete reasons, then the c
 points are indicators from tracking + body pose, not a verdict (instructions from the coach are unknown).
 For "how could it be avoided / prevented / what should they have done", call simulate_goal_prevention (goals) or
 simulate_defence (any frame) and explain the key_fix first, then the other moves, with before→after numbers.
+Always split the effect: reduction_parts.position_only vs posture_only (body, head, stance) — say honestly when
+posture adds little. For "what should HE have done" about one player, call coach_defender(match_id, frame, player_id).
+For recurring errors / what to train / training plan / drills, call error_patterns(team) or training_plan(team)
+and answer with the priorities, the evidence (moments, lift, link to real shots), the players and the drill.
+When asked whether a simulation or replay is realistic / trustworthy / validated, call simulation_validity() and report both what is supported and what is not.
+To show how the WHOLE defence should have MOVED over time (up to 5 s, attack unchanged), call
+replay_better_defence(match_id, goal_number=N) or (match_id, frame=F): explain mean / end reduction, the defenders
+who defended most differently and any ball_reachable events; the viewer then plays the simulated defence.
 Use at most 6 tool calls, then ALWAYS write the final answer in text.
 Structure explanations like an analyst: 1) what the defence looked like (shape), 2) the key individual action
 (body orientation / vision / reaction), 3) the consequence, 4) the coaching correction.
@@ -74,6 +82,11 @@ def goal_focus(match_id: int, goal_number: int) -> dict | None:
 def focus_from_calls(calls: list[dict]) -> dict | None:
     for c in reversed(calls):
         a = c.get("args") or {}
+        if c.get("tool") == "replay_better_defence" and "match_id" in a:
+            if int(a.get("goal_number") or 0) > 0:
+                return {"replay": {"goal": int(a["goal_number"])}, "label": f"better-defence replay of goal {a['goal_number']}"}
+            if a.get("frame"):
+                return {"replay": {"frame": int(a["frame"])}, "label": "better-defence replay"}
         if c.get("tool") in ("simulate_goal_prevention", "simulate_defence") and "match_id" in a:
             try:
                 if c["tool"] == "simulate_goal_prevention":
@@ -247,6 +260,69 @@ def explain_moment_offline(match_id: int, frame: int) -> Answer:
                                                                          "frame_to": frame + 60}}])
 
 
+def validity_answer_offline(v: dict) -> Answer:
+    if "error" in v:
+        return Answer(v["error"], [{"tool": "simulation_validity", "args": {}}])
+    L = ["**Can the simulation be trusted?**"]
+    m, d, r = v.get("marking"), v.get("danger"), v.get("replay")
+    if m:
+        c = m["completion_by_cover"]
+        L.append(f"- Supported: the marking term matches real passing — passes to attackers it rates free are completed "
+                 f"{c['free']:.0%} vs {c['tight']:.0%} for tightly marked ones; the chosen option is the freer one "
+                 f"(AUC {m['targeted_within_pass']['free']['auc']}); agreement with SkillCorner xPass ρ={m['corr_free_vs_xpass']}.")
+    if r:
+        L.append(f"- Supported: simulated defenders run {r['distance_5s_m']['simulated_mean']} m in 5 s vs "
+                 f"{r['distance_5s_m']['real_mean']} m real, top speed {r['speed_mps']['simulated']['max']} vs "
+                 f"{r['speed_mps']['real']['max']} m/s, acceleration ≤ {r['accel_mps2']['simulated']['max']} m/s².")
+    if d:
+        o = d["out_of_match_auc"]
+        L.append(f"- Not supported: the total danger does not predict shots better than ball location "
+                 f"(out-of-match AUC {o['danger']['auc']} vs {o['ball']['auc']}): reductions are of the objective, not of shot probability.")
+    linked = [k for k, o in (v.get("error_patterns_vs_real_shots") or {}).items() if o.get("linked")]
+    if linked:
+        L.append("- Error patterns linked to real shots: " + ", ".join(linked) + ".")
+    L.append("- The exact % of a goal's replay depends on the control weight (see RESULTS.md §5.3); the direction is stable.")
+    return Answer("\n".join(L), [{"tool": "simulation_validity", "args": {}}])
+
+
+def training_answer_offline(plans: list[dict]) -> Answer:
+    L = []
+    for tp in plans:
+        if "error" in tp:
+            L.append(f"**{tp['team']}**: {tp['error']}")
+            continue
+        L.append(f"**{tp['team']} — error patterns from {tp['dangerous_moments_coached']} simulated dangerous moments**")
+        for b in tp["session"]:
+            L.append(f"{b['priority']}. **{b['pattern']}** ({b['principle']}) — {b['evidence']}. Focus: "
+                     + ", ".join(p["defender"] for p in b["players"][:3]) + f". Drill: *{b['drill']['name']}* — {b['drill']['objective']} "
+                     f"Track: {b['drill']['kpi']}.")
+        L.append("Session: " + " → ".join(tp["session_outline"]))
+        L.append("")
+    L.append("_Model-derived priorities; the full drills are in the Match report tab and docs/TRAINING.md._")
+    return Answer("\n".join(L), [{"tool": "training_plan", "args": {"team": tp.get("team")}} for tp in plans])
+
+
+def replay_answer_offline(r: dict, key: dict) -> Answer:
+    if "error" in r:
+        return Answer(r["error"])
+    g = r.get("goal")
+    L = [f"**Better-defence replay — {r['defending_team']}**, {r['seconds']} s"
+         + (f" before goal {g['goal_number']} ({g['scorer']}, {g['time']})" if g else "")
+         + ": the attack replays exactly as it happened; every defender is re-steered every 0.2 s within physical "
+           f"limits ({r['limits']['speed_mps']:.0f} m/s, {r['limits']['accel_mps2']:.0f} m/s², body {r['limits']['body_turn_dps']}°/s).",
+         f"**Danger −{r['mean_reduction']:.0%} on average, −{r['end_reduction']:.0%} at the end**"
+         f" (free attackers near goal at the end {r['end_real']['free_attackers']} → {r['end_sim']['free_attackers']}"
+         + (f"; nearest defender to {r['focus_attacker']} {r['end_real'].get('focus_marker_dist')} → {r['end_sim'].get('focus_marker_dist')} m" if r.get("focus_attacker") else "")
+         + ").", "**Who defends differently**"]
+    for d in r["differences"][:5]:
+        L.append(f"- {d['defender']}: ends {d['end_gap_m']} m from where he really was, on {d['ends_on']} "
+                 f"({d['ends_dist_m']} m, {'goal-side' if d['goal_side'] else 'not goal-side'}), body {d['shape_end']}")
+    for e in r["events"][:3]:
+        L.append(f"- ⚠ {e['defender']} could reach the ball (frame {e['frame']}): from there the real play would have changed.")
+    L.append("_Green bodies in the viewer = the simulated defence; press play to watch it against the real attack._")
+    return Answer("\n".join(L), [{"tool": "replay_better_defence", "args": key}], focus={"replay": key, "label": "better-defence replay"})
+
+
 def sim_answer_offline(r: dict, sim_key: dict) -> Answer:
     if "error" in r:
         return Answer(r["error"])
@@ -254,7 +330,9 @@ def sim_answer_offline(r: dict, sim_key: dict) -> Answer:
     head = (f"**Simulation — {r['defending_team']}** at the {r.get('moment', 'selected moment')}"
             + (f" of goal {r['goal']['goal_number']} ({r['goal']['scorer']}, {r['goal']['time']})" if r.get("goal") else "")
             + f": each defender could move up to {r['max_move_m']} m (reacting {r['reaction_window_s']} s earlier).")
-    L = [head, f"**Danger −{r['danger_reduction']:.0%}**",
+    rp = r.get("reduction_parts")
+    L = [head, f"**Danger −{r['danger_reduction']:.0%}**" + (
+        f" (position alone −{rp['position_only']:.0%}, posture alone −{rp['posture_only']:.0%})" if rp else ""),
          f"- free attackers near goal: {b['free_attackers']} → {a['free_attackers']}"]
     if "focus_marker_dist" in b:
         L.append(f"- nearest defender to {r.get('focus_attacker')}: {b['focus_marker_dist']} m → {a['focus_marker_dist']} m")
@@ -304,6 +382,31 @@ def ask_offline(question: str) -> Answer:
     if ctx:
         question = question[ctx.end():]
         mm, ff = re.search(r"match_id=(\d+)", ctx.group(1)), re.search(r"tracking frame=(\d+)", ctx.group(1))
+    if re.search(r"realis|realist|trust|confi[aá]|valid|reliab|how good is the simul|quão real|é real", question.lower()):
+        return validity_answer_offline(T.simulation_validity())
+    if re.search(r"train|treino|drill|exerc|padr[õo]|pattern|recurr|recorrent|erros? (de|da|do)|mistakes", question.lower()):
+        q = question.lower()
+        from ..config import MATCHES
+        from ..data.load import load_meta
+        mid = int(mm.group(1)) if mm else next(iter(MATCHES))
+        mt = load_meta(mid)
+        teams = [mt.team_name(mt.home_id), mt.team_name(mt.away_id)]
+        pick = [tm for tm in teams if tm.lower().split()[0] in q] or teams
+        return training_answer_offline([T.training_plan(tm) for tm in pick])
+    if re.search(r"replay|moviment|movement|sequ[eê]nc|5 ?s\b|segundos|seconds|over time|ao longo", question.lower()):
+        q = question.lower()
+        from ..config import MATCHES
+        mid = int(mm.group(1)) if mm else next(iter(MATCHES))
+        num = re.search(r"(?:goal|gol)\s*(\d)", q)
+        gl = T.goals(mid)["goals"]
+        if (re.search(r"goal|gol", q) or not (ctx and ff)) and gl:
+            n = min(int(num.group(1)), len(gl)) if num else 1
+            for word, k in (("second", 2), ("segundo", 2), ("third", 3), ("terceiro", 3), ("last", len(gl)), ("último", len(gl))):
+                if word in q:
+                    n = min(k, len(gl))
+            return replay_answer_offline(T.replay_better_defence(mid, n), {"goal": n})
+        if ctx and ff:
+            return replay_answer_offline(T.replay_better_defence(mid, 0, int(ff.group(1))), {"frame": int(ff.group(1))})
     if re.search(r"avoid|evit|prevent|impedir|simul|stop it|parar", question.lower()):
         from ..config import MATCHES
         mid = int(mm.group(1)) if mm else next(iter(MATCHES))

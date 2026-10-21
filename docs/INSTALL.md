@@ -59,6 +59,9 @@ python -m dbl pose        # body-pose features per player-frame (25 fps)        
 python -m dbl build       # defensive moments, team shape, evidence (bootstrap)      ~6 min
 python -m dbl skeletons   # 3D clips around every moment (Moments tab)             ~2 min per match
 python -m dbl fullmatch   # full-match skeletons at 12.5 fps (3D match viewer)       ~2 min per match
+python -m dbl patterns    # coach every dangerous moment → error patterns + docs/TRAINING.md   ~5 min
+python -m dbl gait        # running clips per player for the simulated defenders              ~20 s per match
+python -m dbl validate    # test the simulation against real passes/shots + kinematics  ~10 min
 python -m dbl report      # regenerate docs/RESULTS.md and README figures            ~1 min
 # or everything at once:
 python -m dbl all
@@ -73,7 +76,7 @@ skips work already done (`--force` to redo pose/skeleton steps).
 python -m dbl viewer      # full-match 3D viewer  -> http://localhost:8765
 python -m dbl app         # Streamlit analyst app -> http://localhost:8501 (includes the viewer in "Match 3D")
 python -m dbl ask "Who ball-watches most at Sydney FC?"
-pytest                    # 14 unit + integration tests
+pytest                    # unit + integration tests
 ```
 
 ## 6. Gemini (optional)
