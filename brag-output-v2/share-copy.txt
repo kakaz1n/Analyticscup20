@@ -1,0 +1,1 @@
+Perth score at 68:25. What should Brisbane have done? I re-simulated the whole defence (each player's own physics, reading the play 0.4 s late), re-coached all 582 dangerous moments of two A-League matches, and turned the errors linked to real shots into drills you watch on the real moment in 3D. #PySport #AnalyticsCup
