@@ -71,6 +71,8 @@ Gemini answers about the frame on screen through **typed, read-only tools** (rep
 
 ## Reproduce
 
+**Online:** [open in GitHub Codespaces](https://codespaces.new/kakaz1n/Analyticscup20). It runs in the browser, downloads the data and builds everything once (~45 min), then opens the viewer. Locally:
+
 ```bash
 git clone https://github.com/kakaz1n/Analyticscup20.git && cd Analyticscup20
 python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
@@ -83,7 +85,5 @@ pytest
 If huggingface.co is blocked, put the two [SkillCorner/opendata-bodypose](https://huggingface.co/datasets/SkillCorner/opendata-bodypose) zips in `data/pose_raw/`. For Gemini, copy `.env.example` to `.env` and add a key (optional).
 
 Details: [`docs/`](docs/README.md).
-
-References: Spearman (2018); Fernández & Bornn (2018); Shah (2026, Analytics Cup).
 
 *Data © SkillCorner, not redistributed. Code: MIT (`LICENSE.md`).*

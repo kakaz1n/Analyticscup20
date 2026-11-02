@@ -3,6 +3,17 @@
 Everything runs locally with open-source software (Python, pandas, Streamlit, Three.js). An internet connection is
 needed once to download the data; Gemini is optional.
 
+## 0. Run it online (GitHub Codespaces)
+
+[Open the repository in Codespaces](https://codespaces.new/kakaz1n/Analyticscup20) (a GitHub account is enough; the
+free monthly quota covers it). The container (`.devcontainer/`) installs the requirements, downloads the SkillCorner open
+data from its official sources (GitHub + Hugging Face; nothing is redistributed by this repo), builds everything once
+(~45 min on 4 cores, log in `data-build.log`) and starts the viewer; port 8765 opens in the browser. For Gemini, add a
+Codespaces secret `GEMINI_API_KEY` (the container asks for it; optional).
+
+The viewer binds to 127.0.0.1 by default; `python -m dbl viewer --host 0.0.0.0` (or `DBL_HOST=0.0.0.0`) exposes it
+inside a container.
+
 ## 1. Requirements
 
 | | Minimum | Notes |

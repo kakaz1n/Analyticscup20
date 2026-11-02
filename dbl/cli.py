@@ -110,7 +110,7 @@ def cmd_ask(args):
 
 def cmd_viewer(args):
     from .viewer.server import serve
-    serve(args.port, open_browser=not args.no_browser)
+    serve(args.port, open_browser=not args.no_browser, host=args.host)
 
 
 def cmd_full(args):
@@ -192,6 +192,7 @@ def main(argv=None):
     p.set_defaults(fn=cmd_validate)
     p = sub.add_parser("gait"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_gait)
     p = sub.add_parser("viewer"); p.add_argument("--port", type=int, default=8765)
+    p.add_argument("--host", default=None, help="bind address (default 127.0.0.1; 0.0.0.0 in a container)")
     p.add_argument("--no-browser", action="store_true"); p.set_defaults(fn=cmd_viewer)
     p = sub.add_parser("fullmatch"); p.add_argument("--force", action="store_true"); p.set_defaults(fn=cmd_full)
     args = ap.parse_args(argv)

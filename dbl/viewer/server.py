@@ -366,13 +366,16 @@ def ask_with_context(body: dict) -> dict:
 _server: ThreadingHTTPServer | None = None
 
 
-def start(port: int = 8765, background: bool = True) -> int:
-    """Start the viewer server (idempotent). Returns the port."""
+def start(port: int = 8765, background: bool = True, host: str | None = None) -> int:
+    """Start the viewer server (idempotent). Returns the port. host defaults to 127.0.0.1 (DBL_HOST to override,
+    e.g. 0.0.0.0 inside a container)."""
     global _server
     if _server is not None:
         return _server.server_address[1]
+    import os
+    host = host or os.environ.get("DBL_HOST", "127.0.0.1")
     try:
-        _server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        _server = ThreadingHTTPServer((host, port), Handler)
     except OSError:  # already running (e.g. another Streamlit rerun) -> reuse
         return port
     if background:
@@ -380,8 +383,8 @@ def start(port: int = 8765, background: bool = True) -> int:
     return port
 
 
-def serve(port: int = 8765, open_browser: bool = True) -> None:
-    start(port, background=True)
+def serve(port: int = 8765, open_browser: bool = True, host: str | None = None) -> None:
+    start(port, background=True, host=host)
     url = f"http://localhost:{port}/"
     print(f"3D match viewer on {url}  (Ctrl+C to stop)")
     if open_browser:
