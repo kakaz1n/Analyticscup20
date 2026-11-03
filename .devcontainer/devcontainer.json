@@ -1,16 +1,33 @@
 {
   "name": "Defensive Body Language",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
-  "hostRequirements": { "cpus": 4, "memory": "8gb", "storage": "32gb" },
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
   "postCreateCommand": "pip install -r requirements.txt && bash .devcontainer/setup.sh",
-  "postAttachCommand": { "viewer": "python -m dbl viewer --no-browser --host 0.0.0.0" },
-  "forwardPorts": [8765],
-  "portsAttributes": { "8765": { "label": "3D viewer", "onAutoForward": "openBrowser" } },
+  "forwardPorts": [
+    8765
+  ],
+  "portsAttributes": {
+    "8765": {
+      "label": "3D viewer",
+      "onAutoForward": "openBrowser"
+    }
+  },
   "secrets": {
     "GEMINI_API_KEY": {
       "description": "Optional. Enables free-form questions to Gemini in the viewer; without it the offline router answers with the same tools.",
       "documentationUrl": "https://aistudio.google.com/apikey"
     }
   },
-  "customizations": { "codespaces": { "openFiles": ["README.md"] } }
+  "customizations": {
+    "codespaces": {
+      "openFiles": [
+        "README.md"
+      ]
+    }
+  },
+  "postStartCommand": "bash .devcontainer/start.sh"
 }

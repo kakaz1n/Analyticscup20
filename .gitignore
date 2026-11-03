@@ -7,3 +7,4 @@ __pycache__/
 brag-output/work/
 brag-output-*/work/
 data-build.log
+viewer.log
